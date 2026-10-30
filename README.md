@@ -6,6 +6,7 @@ Source adapters for the [Cortex](https://github.com/the-metafactory/cortex) Desk
 |---|---|---|
 | `desk-calendar --exchange` | an Exchange calendar through the `ical` CLI | `events` |
 | `desk-calendar --mac [--exclude <calendar>]` | macOS Calendar through the `ical` CLI | `events` |
+| `dist/desk-calendar-mac [--exclude <calendar>] [--include <calendar>] [--days 5]` | macOS Calendar through EventKit (a compiled Swift binary) | `events` |
 | `desk-mail --account <name>` | an IMAP mailbox through the `email` CLI | `items` (mail) |
 
 Both wrap CLIs from a personal toolkit. They are examples of the contract as much as tools: copy one and point it at your own calendar or mail tool.
@@ -19,6 +20,17 @@ A source prints `{ "events"?: [...], "items"?: [...] }` on stdout and exits 0. T
 - Links must be `http:`, `https:` or `message:` (Apple Mail). Cortex drops entries that do not match and reports how many it dropped.
 
 `desk-mail` reads message bodies without marking them read, and only for the newest unread messages (`--bodies`, default 15).
+
+## macOS calendars under a daemon
+
+macOS grants calendar access per program. A Cortex daemon started by launchd has no grant, so `desk-calendar --mac` (which goes through icalBuddy) returns an empty calendar there. `desk-calendar-mac` reads EventKit itself and re-launches itself as its own responsible process, so the grant belongs to it whoever starts it.
+
+```sh
+./mac/build.sh                 # needs the Xcode command line tools
+./dist/desk-calendar-mac --days 1   # first run: macOS asks for calendar access; allow it
+```
+
+A rebuild changes the binary's signature, so macOS asks again. Without access it exits 3 with a message, and the Desk shows the source as failing. Multi-day all-day events come as one entry per day.
 
 ## Use it in Cortex
 

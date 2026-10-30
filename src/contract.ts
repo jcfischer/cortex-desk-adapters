@@ -15,6 +15,8 @@ export interface DeskSourceEvent {
   online?: boolean;
   /** A link that opens the event or joins the meeting. */
   url?: string;
+  /** The calendar the event belongs to, e.g. for per-calendar colours. */
+  calendar?: string;
 }
 
 export interface DeskSourceMail {
