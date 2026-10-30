@@ -5,6 +5,9 @@
 // responsibility disclaimed. The grant then belongs to desk-calendar-mac, whoever starts it.
 //
 // Usage: desk-calendar-mac [--days 5] [--exclude <calendar>]... [--include <calendar>]...
+//        desk-calendar-mac --create [--calendar <name>]   (a Desk writer: one calendar request on stdin)
+//
+// stdin is read only after the relaunch; the child inherits the parent's descriptors, so the request reaches it.
 
 import EventKit
 import Foundation
@@ -44,17 +47,86 @@ if ProcessInfo.processInfo.environment[disclaimedFlag] == nil { relaunchDisclaim
 var days = 5
 var excluded = Set<String>()
 var included = Set<String>()
+var create = false
+var calendarName: String?
 var args = CommandLine.arguments.dropFirst().makeIterator()
 while let arg = args.next() {
   switch arg {
   case "--days": days = Int(args.next() ?? "") ?? days
   case "--exclude": if let v = args.next() { excluded.insert(v) }
   case "--include": if let v = args.next() { included.insert(v) }
+  case "--create": create = true
+  case "--calendar": calendarName = args.next()
   default:
     FileHandle.standardError.write("desk-calendar-mac: unknown argument \(arg)\n".data(using: .utf8)!)
     exit(2)
   }
 }
+
+// MARK: --create, the Desk calendar writer. Its refusals are one plain sentence on stderr, exit non-zero.
+
+func refuse(_ sentence: String, _ code: Int32 = 2) -> Never {
+  FileHandle.standardError.write("\(sentence)\n".data(using: .utf8)!)
+  exit(code)
+}
+
+if calendarName != nil && !create { refuse("--calendar only applies with --create.") }
+
+struct CalendarRequest {
+  let title: String
+  let start: Date
+  let end: Date?
+  let allDay: Bool
+  let location: String?
+  let notes: String?
+}
+
+/// ISO 8601 with an offset (fractional seconds allowed), or a local date / date-time without one.
+func parseDate(_ text: String) -> Date? {
+  let iso = ISO8601DateFormatter()
+  for options: ISO8601DateFormatter.Options in [[.withInternetDateTime, .withFractionalSeconds], [.withInternetDateTime]] {
+    iso.formatOptions = options
+    if let d = iso.date(from: text) { return d }
+  }
+  let local = DateFormatter()
+  local.locale = Locale(identifier: "en_US_POSIX")
+  local.timeZone = TimeZone.current
+  local.isLenient = false
+  for format in ["yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd'T'HH:mm", "yyyy-MM-dd"] {
+    local.dateFormat = format
+    if let d = local.date(from: text) { return d }
+  }
+  return nil
+}
+
+/// Reads and checks the writer input before any calendar access, so a refused request touches nothing.
+func readCalendarRequest() -> CalendarRequest {
+  let data = FileHandle.standardInput.readDataToEndOfFile()
+  guard let body = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { refuse("The request is not valid JSON.") }
+  guard body["kind"] as? String == "calendar" else { refuse("This writer handles calendar requests, not \(body["kind"].map { "\($0)" } ?? "none").") }
+  guard let f = body["fields"] as? [String: Any] else { refuse("The request has no fields.") }
+  func text(_ name: String) -> String? {
+    guard let v = f[name] else { return nil }
+    guard let s = v as? String else { refuse("The \(name) must be text.") }
+    let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+    return t.isEmpty ? nil : t
+  }
+  func time(_ name: String) -> Date? {
+    guard let s = text(name) else { return nil }
+    guard let d = parseDate(s) else { refuse("The \(name) is not an ISO 8601 time.") }
+    return d
+  }
+  guard let title = text("title") else { refuse("The title is missing.") }
+  guard let start = time("start") else { refuse("The start is missing.") }
+  var allDay = false
+  if let v = f["allDay"] {
+    guard let n = v as? NSNumber, CFGetTypeID(n) == CFBooleanGetTypeID() else { refuse("allDay must be true or false.") }
+    allDay = n.boolValue
+  }
+  return CalendarRequest(title: title, start: start, end: time("end"), allDay: allDay, location: text("location"), notes: text("notes"))
+}
+
+let request: CalendarRequest? = create ? readCalendarRequest() : nil
 
 let store = EKEventStore()
 let done = DispatchSemaphore(value: 0)
@@ -68,6 +140,58 @@ guard granted else {
   FileHandle.standardError.write("desk-calendar-mac: no calendar access; allow it in System Settings > Privacy & Security > Calendars\n".data(using: .utf8)!)
   exit(3)
 }
+
+/// Saves the event (.thisEvent) and prints `{ id, message }`; id is the eventIdentifier.
+func createEvent(_ r: CalendarRequest) -> Never {
+  let target: EKCalendar
+  if let name = calendarName {
+    let writable = store.calendars(for: .event).filter(\.allowsContentModifications)
+    guard let match = writable.first(where: { $0.title == name }) else {
+      refuse("There is no calendar named \(name) that takes new events; these do: \(writable.map(\.title).sorted().joined(separator: ", ")).", 4)
+    }
+    target = match
+  } else {
+    guard let fallback = store.defaultCalendarForNewEvents else { refuse("There is no default calendar for new events.", 4) }
+    target = fallback
+  }
+  let cal = Calendar.current
+  let event = EKEvent(eventStore: store)
+  event.calendar = target
+  event.title = r.title
+  event.isAllDay = r.allDay
+  if r.allDay {
+    let day = cal.startOfDay(for: r.start)
+    // An end at midnight after the start is exclusive, as calendar files write it: the event ends the day before.
+    var last = r.end.map { cal.startOfDay(for: $0) == $0 && $0 > day ? $0.addingTimeInterval(-1) : $0 } ?? day
+    if last < day { refuse("The end is before the start.") }
+    last = cal.startOfDay(for: last)
+    event.startDate = day
+    event.endDate = last
+  } else {
+    let end = r.end ?? r.start.addingTimeInterval(3600)
+    if end <= r.start { refuse("The end is not after the start.") }
+    event.startDate = r.start
+    event.endDate = end
+  }
+  event.location = r.location
+  event.notes = r.notes
+  do {
+    try store.save(event, span: .thisEvent, commit: true)
+  } catch {
+    refuse("Calendar could not save the event: \(error.localizedDescription)", 5)
+  }
+  let when = DateFormatter()
+  when.locale = Locale(identifier: "en_GB")
+  when.timeZone = TimeZone.current
+  when.dateFormat = r.allDay ? "EEE d MMM" : "EEE d MMM 'at' HH:mm"
+  let message = "Added \"\(r.title)\" to \(target.title) on \(when.string(from: event.startDate))."
+  let out = try! JSONSerialization.data(withJSONObject: ["id": event.eventIdentifier ?? event.calendarItemIdentifier, "message": message], options: [])
+  FileHandle.standardOutput.write(out)
+  FileHandle.standardOutput.write("\n".data(using: .utf8)!)
+  exit(0)
+}
+
+if let r = request { createEvent(r) }
 
 let calendars = store.calendars(for: .event).filter { cal in
   (included.isEmpty || included.contains(cal.title)) && !excluded.contains(cal.title)

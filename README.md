@@ -2,6 +2,8 @@
 
 Source adapters for the [Cortex](https://github.com/the-metafactory/cortex) Desk, Mission Control's landing page. Each adapter is a command that prints one JSON object; Cortex runs it from the stack config and shows what it prints.
 
+The Desk also runs commands to create things the person confirms in its command bar; see [Writers](#writers).
+
 | Command | Reads | Prints |
 |---|---|---|
 | `desk-calendar --exchange` | an Exchange calendar through the `ical` CLI | `events` |
@@ -28,7 +30,7 @@ Use `desk-calendar-mac` for macOS calendars. `desk-calendar --mac` is kept only 
 macOS grants calendar access per program. A Cortex daemon started by launchd has no grant, so `desk-calendar --mac` (which goes through icalBuddy) returns an empty calendar there. `desk-calendar-mac` reads EventKit itself and re-launches itself as its own responsible process, so the grant belongs to it whoever starts it.
 
 ```sh
-./mac/build.sh                 # needs the Xcode command line tools
+./mac/build.sh                 # needs the Xcode command line tools; ./mac/build.sh <dir> builds elsewhere
 ./dist/desk-calendar-mac --days 1   # first run: macOS asks for calendar access; allow it
 ```
 
@@ -53,6 +55,56 @@ mc:
 ```
 
 Cortex runs each command without a shell, at most once per `everySeconds` (default 300), and kills it after `timeoutSeconds` (default 30).
+
+## Writers
+
+The Desk's command bar turns typed text into a proposal card. When the person confirms it, Cortex runs the **writer** configured for that kind, and an optional **parser** reads the text first. Both are commands, like sources. The types are in [`src/contract.ts`](src/contract.ts).
+
+| Command | Kind | Creates |
+|---|---|---|
+| `dist/desk-calendar-mac --create [--calendar <name>]` | `calendar` | an event in macOS Calendar, through EventKit |
+| `desk-task [--map <ref>]... [--autonomy approve] [--kind research] [--soma soma]` | `task` | a node on a work-graph map, through `soma graph add` |
+| `desk-goal [--soma soma]` | `goal` | a draft Soma goal, through `soma goal add` |
+| `desk-parse [--model haiku] [--claude claude]` | (parser) | nothing; prints a proposal |
+
+### The writer contract
+
+Cortex runs the writer without a shell, writes one JSON object to its stdin, closes stdin and waits up to 30 s.
+
+- Input: `{ "kind": "calendar" | "task" | "goal", "fields": { ... } }`.
+  - `calendar`: `title`, ISO 8601 `start`, and optionally `end`, `allDay`, `location`, `notes`.
+  - `task`: `title`, `map` (a work-graph root ref such as `the-metafactory/cortex#2770`) and optionally `details`.
+  - `goal`: `wording`.
+- Success: exit 0 and print one object `{ "id": string, "url"?: string, "message"?: string }`. The `message` is one plain sentence for the person; a `url` must be `http:` or `https:`.
+- Refusal or failure: exit non-zero. The last line of stderr is shown to the person, so it is one plain sentence.
+
+A writer refuses a request of a kind it does not handle, or whose fields fail its checks, and then creates nothing.
+
+### The parser contract
+
+Cortex may run a parser before it builds the card. Its stdin gets `{ "text", "now" (ISO 8601), "timeZone" (IANA), "kinds", "maps": [{ "ref", "label" }] }`; `kinds` is a subset of `reminder`, `note`, `task`, `goal` and `calendar`. It prints one object: `{ "kind", "fields" }` with the fields above, plus `reminder` `{ "text", "due" }` and `note` `{ "text" }`, or `{ "kind": "none", "reason" }`. Cortex validates the answer and falls back to its own rules parser on any failure, so a parser may fail loudly.
+
+### The commands
+
+- **`desk-calendar-mac --create`** reads the request after its relaunch, so a refused request never touches the calendar. It saves to the default calendar for new events, or to `--calendar <name>` (an unknown or read-only calendar is refused), with span `.thisEvent`. The `id` is the event's `eventIdentifier`. An event without `end` lasts an hour; an all-day event without `end` lasts one day. It uses the same calendar grant as reading (full access).
+- **`desk-task`** files the task under its map with `--label desk:intake`, a checkpoint `desk-<kebab title>` of at most 48 characters, and a body holding the details (or the title) under `## Question` plus a line saying it came from the Desk. With one or more `--map`, any other map is refused. An `owner/name#N` map is filed on github.com with an explicit `--repo`, so it does not depend on the directory Cortex runs the writer from; a qualified ref (`github:host/owner/name#N`) is passed as it is. The `id` is `owner/name#N` and the `url` the issue.
+- **`desk-goal`** runs `soma goal add --wording <wording>` and prints the new goal's id (`G<n>`). The goal starts as a draft; activate it with `soma goal activate`.
+- **`desk-parse`** asks a model once (`claude -p --model haiku --output-format text`) to read the text against `now` and `timeZone`, choosing a map only from `maps`. It prints the first JSON object of the answer after a shape check, and exits non-zero on anything else. A call takes about ten seconds.
+
+Configure them under `mc.desk.ask`:
+
+```yaml
+mc:
+  desk:
+    ask:
+      parser: [/path/to/cortex-desk-adapters/bin/desk-parse.ts]
+      writers:
+        calendar: [/path/to/cortex-desk-adapters/dist/desk-calendar-mac, --create]
+        task: [/path/to/cortex-desk-adapters/bin/desk-task.ts, --map, the-metafactory/cortex#2770]
+        goal: [/path/to/cortex-desk-adapters/bin/desk-goal.ts]
+      taskMaps:
+        - { ref: the-metafactory/cortex#2770, label: Desk }
+```
 
 ## Develop
 

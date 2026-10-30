@@ -38,3 +38,64 @@ export interface DeskSourceOutput {
   events?: DeskSourceEvent[];
   items?: DeskSourceMail[];
 }
+
+/**
+ * The Desk writer contract (cortex#2774): Cortex writes one DeskWriteRequest to a writer's stdin.
+ * On success the writer exits 0 and prints one DeskWriteResult; on refusal it exits non-zero and the
+ * last line of stderr, one plain sentence, is shown to the person. A writer creates nothing it refuses.
+ */
+export type DeskWriteKind = "calendar" | "task" | "goal";
+
+export interface DeskCalendarFields {
+  title: string;
+  /** ISO 8601. */
+  start: string;
+  end?: string;
+  allDay?: boolean;
+  location?: string;
+  notes?: string;
+}
+
+export interface DeskTaskFields {
+  title: string;
+  details?: string;
+  /** A work-graph root ref, e.g. the-metafactory/cortex#2770. */
+  map: string;
+}
+
+export interface DeskGoalFields {
+  wording: string;
+}
+
+export type DeskWriteRequest =
+  | { kind: "calendar"; fields: DeskCalendarFields }
+  | { kind: "task"; fields: DeskTaskFields }
+  | { kind: "goal"; fields: DeskGoalFields };
+
+export interface DeskWriteResult {
+  id: string;
+  /** http(s) only. */
+  url?: string;
+  /** One plain sentence for the person. */
+  message?: string;
+}
+
+/** The Desk parser contract: Cortex writes one DeskParseRequest to the parser's stdin. */
+export type DeskParseKind = "reminder" | "note" | DeskWriteKind;
+
+export interface DeskParseRequest {
+  text: string;
+  /** ISO 8601. */
+  now: string;
+  /** IANA, e.g. Europe/Zurich. */
+  timeZone: string;
+  kinds: DeskParseKind[];
+  maps: { ref: string; label: string }[];
+}
+
+/** The parser prints one of these; Cortex validates it and falls back to its own rules on any failure. */
+export type DeskParseResult =
+  | { kind: "reminder"; fields: { text: string; due: string } }
+  | { kind: "note"; fields: { text: string } }
+  | DeskWriteRequest
+  | { kind: "none"; reason: string };

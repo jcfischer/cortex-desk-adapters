@@ -3,10 +3,13 @@
   "version": "0.1.0",
   "license": "MIT",
   "type": "module",
-  "description": "Source adapters for the Cortex Desk: commands that print Desk JSON (events and items).",
+  "description": "Source adapters, writers and a parser for the Cortex Desk: commands that print or create Desk JSON.",
   "bin": {
     "desk-calendar": "bin/desk-calendar.ts",
-    "desk-mail": "bin/desk-mail.ts"
+    "desk-mail": "bin/desk-mail.ts",
+    "desk-goal": "bin/desk-goal.ts",
+    "desk-task": "bin/desk-task.ts",
+    "desk-parse": "bin/desk-parse.ts"
   },
   "scripts": {
     "test": "bun test",
