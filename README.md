@@ -71,7 +71,7 @@ The Desk's command bar turns typed text into a proposal card. When the person co
 
 Cortex runs the writer without a shell, writes one JSON object to its stdin, closes stdin and waits up to 30 s.
 
-- Input: `{ "kind": "calendar" | "task" | "goal", "fields": { ... } }`.
+- Input: `{ "kind": "calendar" | "task" | "goal", "fields": { ... }, "requestId": "<8–64 of [A-Za-z0-9_-]>" }`. The request id is the same for every retry of one confirmed card.
   - `calendar`: `title`, ISO 8601 `start`, and optionally `end`, `allDay`, `location`, `notes`.
   - `task`: `title`, `map` (a work-graph root ref such as `the-metafactory/cortex#2770`) and optionally `details`.
   - `goal`: `wording`.
@@ -87,7 +87,7 @@ Cortex may run a parser before it builds the card. Its stdin gets `{ "text", "no
 ### The commands
 
 - **`desk-calendar-mac --create`** reads the request after its relaunch, so a refused request never touches the calendar. It saves to the default calendar for new events, or to `--calendar <name>` (an unknown or read-only calendar is refused), with span `.thisEvent`. The `id` is the event's `eventIdentifier`. An event without `end` lasts an hour; an all-day event without `end` lasts one day. It uses the same calendar grant as reading (full access).
-- **`desk-task`** files the task under its map with `--label desk:intake`, a checkpoint `desk-<kebab title>` of at most 48 characters, and a body holding the details (or the title) under `## Question` plus a line saying it came from the Desk. With one or more `--map`, any other map is refused. An `owner/name#N` map is filed on github.com with an explicit `--repo`, so it does not depend on the directory Cortex runs the writer from; a qualified ref (`github:host/owner/name#N`) is passed as it is. The `id` is `owner/name#N` and the `url` the issue.
+- **`desk-task`** files the task under its map with `--label desk:principal-intake` and `--once "<!-- desk:request <requestId> -->"`, so a retry of one card finds the node it already filed instead of filing a second (it refuses a request without a request id). It uses a checkpoint `desk-<kebab title>` of at most 48 characters, and a body holding the details (or the title) under `## Question` plus a line saying it came from the Desk. With one or more `--map`, any other map is refused. An `owner/name#N` map is filed on github.com with an explicit `--repo`, so it does not depend on the directory Cortex runs the writer from; a qualified ref (`github:host/owner/name#N`) is passed as it is. The `id` is `owner/name#N` and the `url` the issue.
 - **`desk-goal`** runs `soma goal add --wording <wording>` and prints the new goal's id (`G<n>`). The goal starts as a draft; activate it with `soma goal activate`.
 - **`desk-parse`** asks a model once (`claude -p --model haiku --output-format text`) to read the text against `now` and `timeZone`, choosing a map only from `maps`. It prints the first JSON object of the answer after a shape check, and exits non-zero on anything else. A call takes about ten seconds.
 

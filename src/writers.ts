@@ -41,6 +41,17 @@ function line(fields: Record<string, unknown>, name: string, max: number): strin
   return t;
 }
 
+export const TASK_LABEL = "desk:principal-intake";
+
+export function readRequestId(text: string): string {
+  const body: unknown = JSON.parse(text);
+  const id = isRecord(body) ? body.requestId : undefined;
+  if (typeof id !== "string" || !/^[\w-]{8,64}$/.test(id)) throw new Refusal("The request has no request id, so a retry could file the task twice.");
+  return id;
+}
+
+export const onceMarker = (requestId: string): string => `<!-- desk:request ${requestId} -->`;
+
 export function goalFields(fields: Record<string, unknown>): DeskGoalFields {
   return { wording: line(fields, "wording", 500) };
 }
@@ -105,7 +116,7 @@ export function mapTarget(map: string): { target: string; repo?: string } {
 }
 
 /** `soma graph add --json` prints `{ repo, node, parent, blockedBy }`; on github.com repo is owner/name, node the issue number. */
-export function createdNode(stdout: string): DeskWriteResult {
+export function createdNode(stdout: string): DeskWriteResult & { existing: boolean } {
   let body: unknown;
   try {
     body = JSON.parse(stdout);
@@ -114,11 +125,12 @@ export function createdNode(stdout: string): DeskWriteResult {
   }
   if (!isRecord(body) || typeof body.node !== "string" || typeof body.repo !== "string") throw new Refusal("soma filed the task but printed no node id.");
   const { repo, node } = body;
-  if (!/^\d+$/.test(node)) return { id: node };
-  if (/^[\w.-]+\/[\w.-]+$/.test(repo)) return { id: `${repo}#${node}`, url: `https://github.com/${repo}/issues/${node}` };
-  const gh = repo.match(/^github:([\w.-]+)\/(.+)$/);
-  if (gh) return { id: `${repo}#${node}`, url: `https://${gh[1]}/${gh[2]}/issues/${node}` };
-  return { id: `${repo}#${node}` };
+  const existing = body.existing === true;
+  if (!/^\d+$/.test(node)) return { id: node, existing };
+  if (/^[\w.-]+\/[\w.-]+$/.test(repo)) return { id: `${repo}#${node}`, url: `https://github.com/${repo}/issues/${node}`, existing };
+  const gh = /^github:([\w.-]+)\/(.+)$/.exec(repo);
+  if (gh) return { id: `${repo}#${node}`, url: `https://${gh[1]}/${gh[2]}/issues/${node}`, existing };
+  return { id: `${repo}#${node}`, existing };
 }
 
 /** With --json, a node created but left unattached is reported as JSON on stderr with `attached: false`. */
@@ -138,6 +150,7 @@ export interface TaskOptions {
   maps: string[];
   autonomy: string;
   kind: string;
+  requestId: string;
   now?: Date;
 }
 
@@ -156,7 +169,8 @@ export async function writeTask(raw: Record<string, unknown>, opts: TaskOptions)
       "--autonomy", opts.autonomy,
       "--checkpoint", checkpointSlug(fields.title),
       "--kind", opts.kind,
-      "--label", "desk:intake",
+      "--label", TASK_LABEL,
+      "--once", onceMarker(opts.requestId),
       "--body-file", bodyFile,
       ...(repo ? ["--repo", repo] : []),
       "--json",
@@ -167,8 +181,9 @@ export async function writeTask(raw: Record<string, unknown>, opts: TaskOptions)
       if (partial) throw new Refusal(`soma created node ${partial} but could not attach it to ${fields.map}; finish it with soma graph link.`);
       throw new Refusal(`soma could not file the task: ${lastLine(out.stderr) || `exit ${out.code}`}`);
     }
-    const created = createdNode(out.stdout);
-    return { ...created, message: `Filed "${fields.title}" as ${created.id} on ${fields.map}.` };
+    const { existing, ...created } = createdNode(out.stdout);
+    const message = existing ? `"${fields.title}" was already filed as ${created.id}; nothing new was filed.` : `Filed "${fields.title}" as ${created.id} on ${fields.map}.`;
+    return { ...created, message };
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

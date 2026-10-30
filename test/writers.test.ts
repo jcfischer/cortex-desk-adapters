@@ -1,6 +1,6 @@
 import { expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
-import { checkpointSlug, createdNode, goalIdFrom, readRequest, Refusal, writeGoal, writeTask, type Runner } from "../src/writers";
+import { checkpointSlug, createdNode, goalIdFrom, readRequest, readRequestId, Refusal, writeGoal, writeTask, type Runner } from "../src/writers";
 
 /** A fake runner that records argv and answers like soma would. */
 function fake(answer: { code?: number; stdout?: string; stderr?: string }, onRun?: (argv: string[]) => void) {
@@ -56,10 +56,10 @@ it("derives a bounded checkpoint slug from the title", () => {
 
 it("reads the node and its issue URL from soma graph add --json", () => {
   expect(createdNode(JSON.stringify({ repo: "the-metafactory/cortex", node: "2801", parent: "the-metafactory/cortex#2770", blockedBy: [] })))
-    .toEqual({ id: "the-metafactory/cortex#2801", url: "https://github.com/the-metafactory/cortex/issues/2801" });
+    .toEqual({ id: "the-metafactory/cortex#2801", url: "https://github.com/the-metafactory/cortex/issues/2801", existing: false });
   expect(createdNode(JSON.stringify({ repo: "github:ghe.example/org/repo", node: "5", parent: "x" })))
-    .toEqual({ id: "github:ghe.example/org/repo#5", url: "https://ghe.example/org/repo/issues/5" });
-  expect(createdNode(JSON.stringify({ repo: "gitlab:gitlab.example/g/p", node: "g/p#7" }))).toEqual({ id: "g/p#7" });
+    .toEqual({ id: "github:ghe.example/org/repo#5", url: "https://ghe.example/org/repo/issues/5", existing: false });
+  expect(createdNode(JSON.stringify({ repo: "gitlab:gitlab.example/g/p", node: "g/p#7" }))).toEqual({ id: "g/p#7", existing: false });
 });
 
 const created = JSON.stringify({ repo: "the-metafactory/cortex", node: "2801", parent: "the-metafactory/cortex#2770", blockedBy: [] }, null, 2);
@@ -71,7 +71,7 @@ it("files a task under its map with the configured autonomy, kind and label", as
   });
   const result = await writeTask(
     { title: "Compare EventKit write paths", details: "Which span do recurring events need?", map: "the-metafactory/cortex#2770" },
-    { soma: "soma", run, maps: ["the-metafactory/cortex#2770"], autonomy: "approve", kind: "research", now: new Date("2026-10-30T10:00:00Z") },
+    { soma: "soma", run, maps: ["the-metafactory/cortex#2770"], autonomy: "approve", kind: "research", requestId: "req-00001", now: new Date("2026-10-30T10:00:00Z") },
   );
   const argv = calls[0] ?? [];
   expect(argv.slice(0, 4)).toEqual(["soma", "graph", "add", "the-metafactory/cortex#2770"]);
@@ -80,7 +80,8 @@ it("files a task under its map with the configured autonomy, kind and label", as
   expect(flag("--title")).toBe("Compare EventKit write paths");
   expect(flag("--autonomy")).toBe("approve");
   expect(flag("--kind")).toBe("research");
-  expect(flag("--label")).toBe("desk:intake");
+  expect(flag("--label")).toBe("desk:principal-intake");
+  expect(flag("--once")).toBe("<!-- desk:request req-00001 -->");
   expect(flag("--checkpoint")).toBe("desk-compare-eventkit-write-paths");
   expect(flag("--repo")).toBe("github:github.com/the-metafactory/cortex");
   expect(body).toBe("## Question\n\nWhich span do recurring events need?\n\nFiled from the Cortex Desk on 2026-10-30.\n");
@@ -93,7 +94,7 @@ it("files a task under its map with the configured autonomy, kind and label", as
 
 it("refuses a map off the allow-list and runs nothing", async () => {
   const { run, calls } = fake({ stdout: created });
-  const opts = { soma: "soma", run, maps: ["the-metafactory/cortex#2770"], autonomy: "approve", kind: "research" };
+  const opts = { soma: "soma", run, maps: ["the-metafactory/cortex#2770"], autonomy: "approve", kind: "research", requestId: "req-00001" };
   await expect(writeTask({ title: "x", map: "evil/repo#1" }, opts)).rejects.toThrow("not one this writer may file to");
   await expect(writeTask({ title: "x", map: "#5" }, { ...opts, maps: [] })).rejects.toThrow("not a map ref");
   await expect(writeTask({ title: "x", map: "a/b#1" }, { ...opts, maps: [], autonomy: "yolo" })).rejects.toThrow("autonomy");
@@ -102,6 +103,20 @@ it("refuses a map off the allow-list and runs nothing", async () => {
 
 it("reports a node soma created but could not attach", async () => {
   const { run } = fake({ code: 1, stderr: JSON.stringify({ repo: "a/b", node: "9", parent: "a/b#1", attached: false }, null, 2) });
-  await expect(writeTask({ title: "x", map: "a/b#1" }, { soma: "soma", run, maps: [], autonomy: "approve", kind: "research" }))
+  await expect(writeTask({ title: "x", map: "a/b#1" }, { soma: "soma", run, maps: [], autonomy: "approve", kind: "research", requestId: "req-00001" }))
     .rejects.toThrow("soma created node 9 but could not attach it to a/b#1");
+});
+
+it("reports a task soma found already filed for the same request, and files nothing new", async () => {
+  const { run } = fake({ stdout: JSON.stringify({ repo: "the-metafactory/cortex", node: "2801", parent: "x", blockedBy: [], existing: true }) });
+  const result = await writeTask(
+    { title: "Look", map: "the-metafactory/cortex#2770" },
+    { soma: "soma", run, maps: [], autonomy: "approve", kind: "research", requestId: "req-00001" },
+  );
+  expect(result.message).toBe('"Look" was already filed as the-metafactory/cortex#2801; nothing new was filed.');
+});
+
+it("refuses a task request without a request id", () => {
+  expect(() => readRequestId('{"kind":"task","fields":{}}')).toThrow("request id");
+  expect(readRequestId('{"kind":"task","fields":{},"requestId":"req-00001"}')).toBe("req-00001");
 });
