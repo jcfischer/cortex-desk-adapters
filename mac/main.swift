@@ -72,10 +72,17 @@ guard granted else {
 let calendars = store.calendars(for: .event).filter { cal in
   (included.isEmpty || included.contains(cal.title)) && !excluded.contains(cal.title)
 }
+let known = Set(store.calendars(for: .event).map(\.title))
+let unknown = included.subtracting(known).union(excluded.subtracting(known))
+if !unknown.isEmpty {
+  FileHandle.standardError.write("desk-calendar-mac: no calendar named \(unknown.sorted().joined(separator: ", ")); known: \(known.sorted().joined(separator: ", "))\n".data(using: .utf8)!)
+  exit(4)
+}
 let start = Calendar.current.startOfDay(for: Date())
 let end = Calendar.current.date(byAdding: .day, value: days, to: start)!
 let iso = ISO8601DateFormatter()
 iso.formatOptions = [.withInternetDateTime]
+iso.timeZone = TimeZone.current
 
 var events: [[String: Any]] = []
 var seen = Set<String>()
