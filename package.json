@@ -1,0 +1,19 @@
+{
+  "name": "cortex-desk-adapters",
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "description": "Source adapters for the Cortex Desk: commands that print Desk JSON (events and items).",
+  "bin": {
+    "desk-calendar": "bin/desk-calendar.ts",
+    "desk-mail": "bin/desk-mail.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "bunx tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.4",
+    "typescript": "^7.0.2"
+  }
+}
