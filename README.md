@@ -5,7 +5,7 @@ Source adapters for the [Cortex](https://github.com/the-metafactory/cortex) Desk
 | Command | Reads | Prints |
 |---|---|---|
 | `desk-calendar --exchange` | an Exchange calendar through the `ical` CLI | `events` |
-| `desk-calendar --mac [--exclude <calendar>]` | macOS Calendar through the `ical` CLI | `events` |
+| `desk-calendar --mac [--exclude <calendar>]` | macOS Calendar through the `ical` CLI (legacy: returns nothing under a daemon) | `events` |
 | `dist/desk-calendar-mac [--exclude <calendar>] [--include <calendar>] [--days 5]` | macOS Calendar through EventKit (a compiled Swift binary) | `events` |
 | `desk-mail --account <name>` | an IMAP mailbox through the `email` CLI | `items` (mail) |
 
@@ -22,6 +22,8 @@ A source prints `{ "events"?: [...], "items"?: [...] }` on stdout and exits 0. T
 `desk-mail` reads message bodies without marking them read, and only for the newest unread messages (`--bodies`, default 15).
 
 ## macOS calendars under a daemon
+
+Use `desk-calendar-mac` for macOS calendars. `desk-calendar --mac` is kept only for running by hand from a terminal that already has calendar access; it will not get the per-day splitting or new flags.
 
 macOS grants calendar access per program. A Cortex daemon started by launchd has no grant, so `desk-calendar --mac` (which goes through icalBuddy) returns an empty calendar there. `desk-calendar-mac` reads EventKit itself and re-launches itself as its own responsible process, so the grant belongs to it whoever starts it.
 

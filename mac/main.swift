@@ -18,7 +18,7 @@ func relaunchDisclaimed() -> Never {
   var attrs: posix_spawnattr_t?
   posix_spawnattr_init(&attrs)
   _ = responsibility_spawnattrs_setdisclaim(&attrs, 1)
-  let path = CommandLine.arguments[0]
+  let path = Bundle.main.executablePath ?? CommandLine.arguments[0]
   let argv: [UnsafeMutablePointer<CChar>?] = CommandLine.arguments.map { strdup($0) } + [nil]
   var env = ProcessInfo.processInfo.environment
   env[disclaimedFlag] = "1"
@@ -30,7 +30,12 @@ func relaunchDisclaimed() -> Never {
     exit(1)
   }
   var status: Int32 = 0
-  waitpid(pid, &status, 0)
+  while waitpid(pid, &status, 0) == -1 && errno == EINTR {}
+  let signal = status & 0x7f
+  if signal != 0 {
+    FileHandle.standardError.write("desk-calendar-mac: killed by signal \(signal)\n".data(using: .utf8)!)
+    exit(128 + signal)
+  }
   exit((status >> 8) & 0xff)
 }
 
