@@ -71,18 +71,22 @@ The Desk's command bar turns typed text into a proposal card. When the person co
 
 Cortex runs the writer without a shell, writes one JSON object to its stdin, closes stdin and waits up to 30 s.
 
-- Input: `{ "kind": "calendar" | "task" | "goal", "fields": { ... }, "requestId": "<8–64 of [A-Za-z0-9_-]>" }` (`DeskWriteInput`; `DeskWriteRequest` is the same without the id). The request id is the same for every retry of one confirmed card, so a writer uses it to add nothing on a retry whose first try already wrote. A malformed request id is refused.
+- Input: `{ "kind": "calendar" | "task" | "goal" | "note" | "reminder", "fields": { ... }, "requestId": "<8–64 of [A-Za-z0-9_-]>" }` (`DeskWriteInput`; `DeskWriteRequest` is the same without the id). The request id is the same for every retry of one confirmed card, so a writer uses it to add nothing on a retry whose first try already wrote. A malformed request id is refused.
   - `calendar`: `title`, ISO 8601 `start`, and optionally `end`, `allDay`, `location`, `notes`.
   - `task`: `title`, `map` (a work-graph root ref such as `the-metafactory/cortex#2770`) and optionally `details`.
   - `goal`: `wording`.
+  - `note`: `text`.
+  - `reminder`: `text` and ISO 8601 `due`.
 - Success: exit 0 and print one object `{ "id": string, "url"?: string, "message"?: string }`. The `message` is one plain sentence for the person; a `url` must be `http:` or `https:`.
 - Refusal or failure: exit non-zero. The last line of stderr is shown to the person, so it is one plain sentence.
 
 A writer refuses a request of a kind it does not handle, or whose fields fail its checks, and then creates nothing.
 
+Notes and reminders need no writer: without one, Cortex keeps them on the Desk (Keep in mind, and the timeline for a reminder). With `writers.note` or `writers.reminder` set, Cortex sends them to that command and keeps nothing itself, so the Desk neither shows nor pushes them; the person's own tool does.
+
 ### The parser contract
 
-Cortex may run a parser before it builds the card. Its stdin gets `{ "text", "now" (ISO 8601), "timeZone" (IANA), "kinds", "maps": [{ "ref", "label" }] }`; `kinds` is a subset of `reminder`, `note`, `task`, `goal` and `calendar`. It prints one object: `{ "kind", "fields" }` with the fields above, plus `reminder` `{ "text", "due" }` and `note` `{ "text" }`, or `{ "kind": "none", "reason" }`. Cortex validates the answer and falls back to its own rules parser on any failure, so a parser may fail loudly.
+Cortex may run a parser before it builds the card. Its stdin gets `{ "text", "now" (ISO 8601), "timeZone" (IANA), "kinds", "maps": [{ "ref", "label" }] }`; `kinds` is a subset of `reminder`, `note`, `task`, `goal` and `calendar`. It prints one object: `{ "kind", "fields" }` with the fields above, or `{ "kind": "none", "reason" }`. Cortex validates the answer and falls back to its own rules parser on any failure, so a parser may fail loudly.
 
 ### The commands
 
