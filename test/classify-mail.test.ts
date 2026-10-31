@@ -1,9 +1,9 @@
 import { afterAll, describe, expect, it } from "bun:test";
-import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { classifyMail, TriageUnavailable } from "../src/classify-mail";
-import { pulse, type ChatModel } from "../src/pulse";
+import { asPulseApi, pulse, type ChatModel } from "../src/pulse";
 import { readTriageRequest, validateTriage, type TriageRequest } from "../src/triage";
 
 const ROOT = join(import.meta.dir, "..");
@@ -141,5 +141,20 @@ describe("the command", () => {
     expect(out).toBe("");
     expect(err.trim().split("\n")).toHaveLength(1);
     expect(err).toContain("the model is unavailable");
+  });
+});
+
+describe("the pulse boundary", () => {
+  it("names what a pulse version without the expected exports lacks", () => {
+    expect(() => asPulseApi({ runPipelineFromYaml: () => null })).toThrow("pulse lacks OpenAICompatibleChatModel, ResearchUnavailable, MapItemFailure, ModelUnavailableError");
+  });
+});
+
+describe("the transcript dir", () => {
+  it("tightens a dir that already exists to 0700", async () => {
+    const dir = join(await scratch(), "transcripts");
+    await mkdir(dir, { mode: 0o755 });
+    await classifyMail(request({ mail: { ...request().mail, from: { address: "news@grimm.example" } } }), { flow: FLOW, model: stubModel([]), actionDirs: [ACTIONS], transcriptDir: dir });
+    expect(((await stat(dir)).mode & 0o777).toString(8)).toBe("700");
   });
 });

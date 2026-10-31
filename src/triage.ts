@@ -6,6 +6,8 @@ export const EVIDENCE_KINDS = ["mail", "event", "note"] as const;
 export const MAX_REASON = 200;
 export const MAX_SUMMARY = 600;
 export const MAX_EVIDENCE = 5;
+export const MAX_REF = 300;
+export const MAX_TITLE = 200;
 const MAX_CORRECTIONS = 10;
 
 export type Category = (typeof CATEGORIES)[number];
@@ -154,7 +156,7 @@ export function validateTriage(answer: unknown, meetingKeys: ReadonlySet<string>
   const category = answer.category;
   const out: TriageAnswer = { category, reason: text(answer.reason, "reason", MAX_REASON) };
   if (!absent(answer.meetingKey)) {
-    const key = text(answer.meetingKey, "meetingKey", 300);
+    const key = text(answer.meetingKey, "meetingKey", MAX_REF);
     if (!meetingKeys.has(key)) throw new Error("the answer names a meeting the request did not list");
     if (category !== "bulk") out.meetingKey = key;
   }
@@ -171,7 +173,7 @@ export function validateTriage(answer: unknown, meetingKeys: ReadonlySet<string>
       const bad = extraKey(e, EVIDENCE_KEYS);
       if (bad) throw new Error(`evidence ${i} has an unknown field: ${bad}`);
       if (!oneOf(EVIDENCE_KINDS, e.kind)) throw new Error(`evidence ${i} has an unknown kind`);
-      return { kind: e.kind, ref: text(e.ref, `evidence ${i} ref`, 300), title: text(e.title, `evidence ${i} title`, 200) };
+      return { kind: e.kind, ref: text(e.ref, `evidence ${i} ref`, MAX_REF), title: text(e.title, `evidence ${i} title`, MAX_TITLE) };
     });
     if (evidence.length > 0) out.evidence = evidence;
   }

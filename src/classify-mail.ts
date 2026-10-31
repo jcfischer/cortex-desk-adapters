@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { chmod, mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pulse, type ChatModel, type FlowRunner, type ResearchEvent } from "./pulse";
 import { isRecord } from "./guards";
@@ -22,6 +22,7 @@ export class TriageUnavailable extends Error {}
 
 export async function classifyMail(request: TriageRequest, options: ClassifyOptions): Promise<ClassifyResult> {
   await mkdir(options.transcriptDir, { recursive: true, mode: 0o700 });
+  await chmod(options.transcriptDir, 0o700);
   const stats = { rounds: 0, toolCalls: 0 };
   const count = (e: ResearchEvent): void => {
     if (e.type !== "research.round") return;

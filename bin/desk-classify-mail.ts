@@ -16,10 +16,10 @@ import { readTriageRequest } from "../src/triage";
 const DEADLINE_MS = 63_000;
 const MODEL_TIMEOUT_MS = 60_000;
 
-const fail = (message: string, code = 1): never => {
+function fail(message: string, code = 1): never {
   process.stderr.write(`desk-classify-mail: ${message.split("\n")[0] ?? message}\n`);
   process.exit(code);
-};
+}
 
 const deadline = setTimeout(() => fail(`no answer within ${DEADLINE_MS / 1000} s`, 3), DEADLINE_MS);
 
@@ -47,11 +47,11 @@ try {
   const request = readTriageRequest(await new Response(Bun.stdin.stream()).text());
   const started = Date.now();
   const result = await classifyMail(request, {
-    flow: flow ?? "",
+    flow,
     model: new pulse.OpenAICompatibleChatModel({
-      baseUrl: baseUrl ?? "",
-      model: model ?? "",
-      apiKeyEnv: values["key-env"] ?? "DESK_CLASSIFIER_KEY",
+      baseUrl,
+      model,
+      apiKeyEnv: values["key-env"],
       label: "triage",
       timeoutMs: MODEL_TIMEOUT_MS,
       ...(ca ? { fetch: withCa(ca) } : {}),

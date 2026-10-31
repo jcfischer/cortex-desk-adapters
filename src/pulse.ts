@@ -44,4 +44,12 @@ interface PulseApi {
 
 const specifier: string = "pulse";
 
-export const pulse = (await import(specifier)) as PulseApi;
+const MEMBERS = ["runPipelineFromYaml", "OpenAICompatibleChatModel", "ResearchUnavailable", "MapItemFailure", "ModelUnavailableError"] as const;
+
+export function asPulseApi(mod: Record<string, unknown>): PulseApi {
+  const missing = MEMBERS.filter((m) => typeof mod[m] !== "function");
+  if (missing.length > 0) throw new Error(`pulse lacks ${missing.join(", ")}; this adapter expects pulse v0.31`);
+  return mod as unknown as PulseApi;
+}
+
+export const pulse = asPulseApi((await import(specifier)) as Record<string, unknown>);
