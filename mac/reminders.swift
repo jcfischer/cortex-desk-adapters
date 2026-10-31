@@ -149,13 +149,20 @@ func carriesMarker(_ r: EKReminder) -> Bool {
   return lines.last == marker
 }
 
-let fetched = DispatchSemaphore(value: 0)
-var existing: [EKReminder] = []
-store.fetchReminders(matching: store.predicateForReminders(in: [target])) { found in
-  existing = found ?? []
-  fetched.signal()
+func fetch(_ predicate: NSPredicate) -> [EKReminder] {
+  let fetched = DispatchSemaphore(value: 0)
+  var found: [EKReminder] = []
+  store.fetchReminders(matching: predicate) { reminders in
+    found = reminders ?? []
+    fetched.signal()
+  }
+  fetched.wait()
+  return found
 }
-fetched.wait()
+
+let recentlyCompleted = Date().addingTimeInterval(-7 * 86_400)
+let existing = fetch(store.predicateForIncompleteReminders(withDueDateStarting: nil, ending: nil, calendars: [target]))
+  + fetch(store.predicateForCompletedReminders(withCompletionDateStarting: recentlyCompleted, ending: nil, calendars: [target]))
 if let earlier = existing.first(where: carriesMarker) {
   succeed(earlier.calendarItemIdentifier, "\"\(shortTitle)\" is already in \(target.title); nothing new was added.")
 }
