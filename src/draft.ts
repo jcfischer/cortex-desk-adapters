@@ -33,13 +33,19 @@ export function readDraftRequest(text: string): DeskMailDraftRequest {
   return { action: "draft", account, messageId: bare(messageId), to: to.trim(), subject: subject.trim(), body: reply };
 }
 
-const parsed = (text: string): Record<string, unknown> | undefined => {
+const parseRecord = (text: string): Record<string, unknown> | undefined => {
   try {
     const value: unknown = JSON.parse(text);
     return isRecord(value) ? value : undefined;
   } catch {
     return undefined;
   }
+};
+
+const parsed = (stdout: string): Record<string, unknown> | undefined => {
+  const text = stdout.trim();
+  const start = text.search(/^\{/m);
+  return parseRecord(text) ?? (start > 0 ? parseRecord(text.slice(start)) : undefined);
 };
 
 /**
@@ -53,12 +59,15 @@ export async function saveDraft(req: DeskMailDraftRequest, run: Runner, emailBin
     "--no-markdown", "--output=json",
   ];
   const result = await run(argv, req.body);
-  const out = parsed(result.stdout.trim());
-  if (result.code !== 0 || out?.success === false) {
+  const out = parsed(result.stdout);
+  if (result.code === 0 && out?.success !== true) {
+    throw new Refusal(`The email CLI gave no confirmation that the draft was saved; check ${req.account} Drafts before trying again.`);
+  }
+  if (result.code !== 0 || !out) {
     const why = typeof out?.error === "string" && out.error ? out.error : lastLine(result.stderr) || `email exited with code ${result.code}`;
     throw new Refusal(`The ${req.account} mail server did not save the draft: ${why.replace(/\s*\n\s*/g, " ")}`);
   }
-  const id = typeof out?.messageId === "string" ? bare(out.messageId) : "";
-  const mailbox = typeof out?.mailbox === "string" && out.mailbox ? out.mailbox : "Drafts";
+  const id = typeof out.messageId === "string" ? bare(out.messageId) : "";
+  const mailbox = typeof out.mailbox === "string" && out.mailbox ? out.mailbox : "Drafts";
   return { id, message: `Draft saved in ${req.account} ${mailbox}.` };
 }

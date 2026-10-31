@@ -30,6 +30,13 @@ it("refuses in one line with the mail server's reason when the draft is not save
   await expect(saveDraft(readDraftRequest(JSON.stringify(REQ)), f.run)).rejects.toThrow("The work mail server did not save the draft: Drafts mailbox not found retry later");
   const crashed = fakeEmail({ code: 2, stdout: "", stderr: "boot\nerror: unknown account work\n" });
   await expect(saveDraft(readDraftRequest(JSON.stringify(REQ)), crashed.run)).rejects.toThrow("did not save the draft: error: unknown account work");
+  const silent = fakeEmail({ code: 0, stdout: "Draft created\n" });
+  await expect(saveDraft(readDraftRequest(JSON.stringify(REQ)), silent.run)).rejects.toThrow("The email CLI gave no confirmation that the draft was saved; check work Drafts before trying again.");
+});
+
+it("reads the confirmation after a stray line on stdout", async () => {
+  const f = fakeEmail({ code: 0, stdout: `warming up\n${JSON.stringify({ success: true, messageId: "<d2@invisible.ch>", mailbox: "Drafts" }, null, 2)}\n` });
+  expect(await saveDraft(readDraftRequest(JSON.stringify(REQ)), f.run)).toEqual({ id: "d2@invisible.ch", message: "Draft saved in work Drafts." });
 });
 
 it("refuses a request that is not a valid draft before anything runs", () => {
