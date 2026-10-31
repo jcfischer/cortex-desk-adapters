@@ -37,6 +37,7 @@ export function fromExchange(e: ExchangeEvent): DeskSourceEvent {
     ...(!allDay && e.endTime ? { end: localIso(e.date, e.endTime) } : {}),
     ...(allDay ? { allDay: true } : {}),
     title: e.title,
+    calendar: "Exchange",
     ...(e.location ? { location: e.location } : {}),
     ...(isOnline(e.location, e.meetingLink) ? { online: true } : {}),
     ...(e.meetingLink ? { url: e.meetingLink } : {}),
@@ -52,6 +53,7 @@ export function fromMac(e: MacEvent): DeskSourceEvent {
     ...(!allDay && e.end_at ? { end: localIso(e.date, e.end_at) } : {}),
     ...(allDay ? { allDay: true } : {}),
     title: e.title,
+    calendar: e.calendar,
     ...(url ? { url } : {}),
   };
 }
