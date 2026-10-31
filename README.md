@@ -63,6 +63,7 @@ The Desk's command bar turns typed text into a proposal card. When the person co
 | Command | Kind | Creates |
 |---|---|---|
 | `dist/desk-calendar-mac --create [--calendar <name>]` | `calendar` | an event in macOS Calendar, through EventKit |
+| `dist/desk-reminders-mac [--list <name>]` | `reminder` | a reminder with an alarm in Apple Reminders, through EventKit |
 | `desk-task [--map <ref>]... [--autonomy approve] [--kind research] [--soma soma]` | `task` | a node on a work-graph map, through `soma graph add` |
 | `desk-goal [--soma soma]` | `goal` | a draft Soma goal, through `soma goal add` |
 | `desk-parse [--model haiku] [--claude claude]` | (parser) | nothing; prints a proposal |
@@ -91,6 +92,12 @@ Cortex may run a parser before it builds the card. Its stdin gets `{ "text", "no
 ### The commands
 
 - **`desk-calendar-mac --create`** reads the request after its relaunch, so a refused request never touches the calendar. It refuses a request without a request id. It saves to the default calendar for new events, or to `--calendar <name>` (an unknown or read-only calendar is refused), with span `.thisEvent`, and puts `desk:request <requestId>` as the last line of the event's notes. Before saving, it looks in the target calendar from the day before the start to a day after the end for an event whose notes hold that line; if it finds one, it saves nothing and reports that event as already there. The `id` is the event's `eventIdentifier`. An event without `end` lasts an hour; an all-day event without `end` lasts one day. It uses the same calendar grant as reading (full access).
+- **`desk-reminders-mac`** is a separate binary with its own signature, so its Reminders grant and the calendar grant of `desk-calendar-mac` never disturb each other. Build it with `./mac/build-reminders.sh`, which builds nothing else. Like `desk-calendar-mac`, it re-launches itself with responsibility disclaimed and reads the request only after that, and it checks the whole request before any Reminders access. It refuses a request without a request id, without `text`, or whose `due` is not an ISO 8601 date and time. It saves to the default Reminders list, or to `--list <name>` (an unknown or read-only list is refused with exit 4). The reminder gets the text as its title, a due date, an alarm at the due time, and `desk:request <requestId>` as the last line of its notes. Before saving, it looks through the target list, completed reminders included, for a reminder whose notes end with that line; if it finds one, it saves nothing and reports that reminder as already there. The `id` is the reminder's `calendarItemIdentifier`. Without full Reminders access it exits 3. The first run asks for access, so run it once by hand and allow it before Cortex uses it:
+
+  ```sh
+  ./mac/build-reminders.sh
+  echo '{"kind":"reminder","fields":{"text":"Try the Desk reminder writer","due":"2026-11-02T09:00:00+01:00"},"requestId":"desk-setup-0001"}' | ./dist/desk-reminders-mac
+  ```
 - **`desk-task`** files the task under its map with `--label desk:principal-intake` and `--once "<!-- desk:request <requestId> -->"`, so a retry of one card finds the node it already filed instead of filing a second (it refuses a request without a request id). It uses a checkpoint `desk-<kebab title>` of at most 48 characters, and a body holding the details (or the title) under `## Question` plus a line saying it came from the Desk. With one or more `--map`, any other map is refused. An `owner/name#N` map is filed on github.com with an explicit `--repo`, so it does not depend on the directory Cortex runs the writer from; a qualified ref (`github:host/owner/name#N`) is passed as it is. The `id` is `owner/name#N` and the `url` the issue.
 - **`desk-goal`** first runs `soma goal list --wording`; if an open goal (draft, active or paused) already has exactly this wording (trimmed), it prints that goal's id and adds nothing; a dropped or achieved goal does not count. Otherwise it runs `soma goal add --wording <wording>` and prints the new goal's id (`G<n>`). The wording is the dedupe key, because `soma goal add` takes none, so the request id is accepted but not required. The goal starts as a draft; activate it with `soma goal activate`.
 - **`desk-parse`** asks a model once (`claude -p --model haiku --output-format text`) to read the text against `now` and `timeZone`, choosing a map only from `maps`. It prints the first JSON object of the answer after a shape check, and exits non-zero on anything else. A call takes about ten seconds.
@@ -106,6 +113,7 @@ mc:
         calendar: [/path/to/cortex-desk-adapters/dist/desk-calendar-mac, --create]
         task: [/path/to/cortex-desk-adapters/bin/desk-task.ts, --map, the-metafactory/cortex#2770]
         goal: [/path/to/cortex-desk-adapters/bin/desk-goal.ts]
+        reminder: [/path/to/cortex-desk-adapters/dist/desk-reminders-mac]
       taskMaps:
         - { ref: the-metafactory/cortex#2770, label: Desk }
 ```

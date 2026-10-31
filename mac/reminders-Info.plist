@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key>
+  <string>ch.invisible.desk-reminders-mac</string>
+  <key>CFBundleName</key>
+  <string>desk-reminders-mac</string>
+  <key>NSRemindersFullAccessUsageDescription</key>
+  <string>The Cortex Desk adds the reminders you confirm on it to Apple Reminders, so your devices alert you on time.</string>
+  <key>NSRemindersUsageDescription</key>
+  <string>The Cortex Desk adds the reminders you confirm on it to Apple Reminders, so your devices alert you on time.</string>
+</dict>
+</plist>
