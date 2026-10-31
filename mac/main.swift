@@ -79,7 +79,11 @@ struct CalendarRequest {
   let allDay: Bool
   let location: String?
   let notes: String?
+  let requestId: String
 }
+
+/// The last line of a written event's notes; a retry of the same Desk card finds it and adds nothing.
+func requestMarker(_ id: String) -> String { "desk:request \(id)" }
 
 /// ISO 8601 with an offset (fractional seconds allowed), or a local date / date-time without one.
 func parseDate(_ text: String) -> Date? {
@@ -105,6 +109,9 @@ func readCalendarRequest() -> CalendarRequest {
   guard let body = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { refuse("The request is not valid JSON.") }
   guard body["kind"] as? String == "calendar" else { refuse("This writer handles calendar requests, not \(body["kind"].map { "\($0)" } ?? "none").") }
   guard let f = body["fields"] as? [String: Any] else { refuse("The request has no fields.") }
+  guard let requestId = body["requestId"] as? String,
+        requestId.range(of: "^[A-Za-z0-9_-]{8,64}$", options: .regularExpression) != nil
+  else { refuse("The request has no request id, so a retry could add the event twice.") }
   func text(_ name: String) -> String? {
     guard let v = f[name] else { return nil }
     guard let s = v as? String else { refuse("The \(name) must be text.") }
@@ -123,7 +130,7 @@ func readCalendarRequest() -> CalendarRequest {
     guard let n = v as? NSNumber, CFGetTypeID(n) == CFBooleanGetTypeID() else { refuse("allDay must be true or false.") }
     allDay = n.boolValue
   }
-  return CalendarRequest(title: title, start: start, end: time("end"), allDay: allDay, location: text("location"), notes: text("notes"))
+  return CalendarRequest(title: title, start: start, end: time("end"), allDay: allDay, location: text("location"), notes: text("notes"), requestId: requestId)
 }
 
 let request: CalendarRequest? = create ? readCalendarRequest() : nil
@@ -174,21 +181,31 @@ func createEvent(_ r: CalendarRequest) -> Never {
     event.endDate = end
   }
   event.location = r.location
-  event.notes = r.notes
+  let marker = requestMarker(r.requestId)
+  event.notes = [r.notes, marker].compactMap { $0 }.joined(separator: "\n")
+  let when = DateFormatter()
+  when.locale = Locale(identifier: "en_GB")
+  when.timeZone = TimeZone.current
+  when.dateFormat = r.allDay ? "EEE d MMM" : "EEE d MMM 'at' HH:mm"
+  func succeed(_ id: String, _ message: String) -> Never {
+    let out = try! JSONSerialization.data(withJSONObject: ["id": id, "message": message], options: [])
+    FileHandle.standardOutput.write(out)
+    FileHandle.standardOutput.write("\n".data(using: .utf8)!)
+    exit(0)
+  }
+  // An earlier try of this card may have saved the event before its output was lost: look for its marker first.
+  let windowStart = cal.date(byAdding: .day, value: -1, to: cal.startOfDay(for: event.startDate))!
+  let windowEnd = cal.date(byAdding: .day, value: 1, to: event.endDate)!
+  let nearby = store.events(matching: store.predicateForEvents(withStart: windowStart, end: windowEnd, calendars: [target]))
+  if let earlier = nearby.first(where: { ($0.notes ?? "").components(separatedBy: .newlines).contains { $0.trimmingCharacters(in: .whitespaces) == marker } }) {
+    succeed(earlier.eventIdentifier ?? earlier.calendarItemIdentifier, "\"\(r.title)\" is already in \(target.title); nothing new was added.")
+  }
   do {
     try store.save(event, span: .thisEvent, commit: true)
   } catch {
     refuse("Calendar could not save the event: \(error.localizedDescription)", 5)
   }
-  let when = DateFormatter()
-  when.locale = Locale(identifier: "en_GB")
-  when.timeZone = TimeZone.current
-  when.dateFormat = r.allDay ? "EEE d MMM" : "EEE d MMM 'at' HH:mm"
-  let message = "Added \"\(r.title)\" to \(target.title) on \(when.string(from: event.startDate))."
-  let out = try! JSONSerialization.data(withJSONObject: ["id": event.eventIdentifier ?? event.calendarItemIdentifier, "message": message], options: [])
-  FileHandle.standardOutput.write(out)
-  FileHandle.standardOutput.write("\n".data(using: .utf8)!)
-  exit(0)
+  succeed(event.eventIdentifier ?? event.calendarItemIdentifier, "Added \"\(r.title)\" to \(target.title) on \(when.string(from: event.startDate)).")
 }
 
 if let r = request { createEvent(r) }

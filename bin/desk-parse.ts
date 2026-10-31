@@ -7,6 +7,7 @@
  */
 import { parseArgs } from "node:util";
 import { buildPrompt, extractJson, readParseRequest, validateParse } from "../src/parse";
+import { lastLine, spawnRunner } from "../src/run";
 
 const { values } = parseArgs({
   options: {
@@ -17,14 +18,9 @@ const { values } = parseArgs({
 
 try {
   const req = readParseRequest(await new Response(Bun.stdin.stream()).text());
-  const proc = Bun.spawn([values.claude ?? "claude", "-p", "--model", values.model ?? "haiku", "--output-format", "text"], {
-    stdin: new TextEncoder().encode(buildPrompt(req)),
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [answer, stderr, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
-  if (code !== 0) throw new Error(`claude exited ${code}: ${stderr.trim().split("\n").at(-1) ?? ""}`);
-  process.stdout.write(`${JSON.stringify(validateParse(extractJson(answer), req))}\n`);
+  const out = await spawnRunner([values.claude ?? "claude", "-p", "--model", values.model ?? "haiku", "--output-format", "text"], buildPrompt(req));
+  if (out.code !== 0) throw new Error(`claude exited ${out.code}: ${lastLine(out.stderr)}`);
+  process.stdout.write(`${JSON.stringify(validateParse(extractJson(out.stdout), req))}\n`);
 } catch (error) {
   process.stderr.write(`desk-parse: ${(error as Error).message}\n`);
   process.exit(1);

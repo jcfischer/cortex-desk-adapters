@@ -1,7 +1,7 @@
 import type { DeskParseKind, DeskParseRequest, DeskParseResult } from "./contract";
+import { isRecord } from "./guards";
 
 const KINDS: DeskParseKind[] = ["reminder", "note", "task", "goal", "calendar"];
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const isText = (v: unknown): v is string => typeof v === "string" && v.trim().length > 0;
 const isIso = (v: unknown): v is string => isText(v) && /^\d{4}-\d{2}-\d{2}/.test(v) && Number.isFinite(Date.parse(v));
 

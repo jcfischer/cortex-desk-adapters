@@ -6,7 +6,8 @@
  * With one or more --map, a request naming any other map is refused.
  */
 import { parseArgs } from "node:util";
-import { readRequest, readRequestId, runWriter, spawnRunner, writeTask } from "../src/writers";
+import { spawnRunner } from "../src/run";
+import { readRequest, requireRequestId, runWriter, writeTask } from "../src/writers";
 
 const { values } = parseArgs({
   options: {
@@ -17,13 +18,14 @@ const { values } = parseArgs({
   },
 });
 
-await runWriter((text) =>
-  writeTask(readRequest(text, "task"), {
+await runWriter((text) => {
+  const input = readRequest(text, "task");
+  return writeTask(input.fields, {
     soma: values.soma ?? "soma",
     run: spawnRunner,
     maps: values.map ?? [],
     autonomy: values.autonomy ?? "approve",
     kind: values.kind ?? "research",
-    requestId: readRequestId(text),
-  }),
-);
+    requestId: requireRequestId(input),
+  });
+});

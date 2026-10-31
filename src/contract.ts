@@ -40,7 +40,7 @@ export interface DeskSourceOutput {
 }
 
 /**
- * The Desk writer contract (cortex#2774): Cortex writes one DeskWriteRequest to a writer's stdin.
+ * The Desk writer contract (cortex#2774): Cortex writes one DeskWriteInput (a DeskWriteRequest plus its requestId) to a writer's stdin.
  * On success the writer exits 0 and prints one DeskWriteResult; on refusal it exits non-zero and the
  * last line of stderr, one plain sentence, is shown to the person. A writer creates nothing it refuses.
  */
@@ -71,6 +71,12 @@ export type DeskWriteRequest =
   | { kind: "calendar"; fields: DeskCalendarFields }
   | { kind: "task"; fields: DeskTaskFields }
   | { kind: "goal"; fields: DeskGoalFields };
+
+/**
+ * What a writer reads on stdin: a request plus the id of the confirmed Desk card, 8–64 of [A-Za-z0-9_-].
+ * Every retry of one card carries the same id, so a writer can recognise a write it already made.
+ */
+export type DeskWriteInput = DeskWriteRequest & { requestId: string };
 
 export interface DeskWriteResult {
   id: string;

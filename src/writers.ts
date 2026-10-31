@@ -1,24 +1,24 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { DeskGoalFields, DeskTaskFields, DeskWriteKind, DeskWriteResult } from "./contract";
+import type { DeskGoalFields, DeskTaskFields, DeskWriteInput, DeskWriteKind, DeskWriteResult } from "./contract";
+import { isRecord } from "./guards";
+import { lastLine, type Runner } from "./run";
 
 /** A refusal: its message is one plain sentence, shown to the person as the last line of stderr. */
 export class Refusal extends Error {}
 
-/** Runs argv without a shell. Injected so tests never reach soma, GitHub or the goal records. */
-export type Runner = (argv: string[]) => Promise<{ code: number; stdout: string; stderr: string }>;
-
-export const spawnRunner: Runner = async (argv) => {
-  const proc = Bun.spawn(argv, { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
-  const [stdout, stderr, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
-  return { code, stdout, stderr };
+/** A writer's stdin after the envelope check: fields still unchecked, the request id present only if Cortex sent one. */
+export type WriterInput<K extends DeskWriteKind = DeskWriteKind> = {
+  kind: K;
+  fields: Record<string, unknown>;
+  requestId?: DeskWriteInput["requestId"];
 };
 
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+const REQUEST_ID = /^[\w-]{8,64}$/;
 
-/** The writer input's fields, refused unless it is valid JSON of the expected kind. */
-export function readRequest(text: string, kind: DeskWriteKind): Record<string, unknown> {
+/** Parses the writer input once, refusing it unless it is JSON of the expected kind with a well-formed request id, if any. */
+export function readRequest<K extends DeskWriteKind>(text: string, kind: K): WriterInput<K> {
   let body: unknown;
   try {
     body = JSON.parse(text);
@@ -27,7 +27,10 @@ export function readRequest(text: string, kind: DeskWriteKind): Record<string, u
   }
   if (!isRecord(body) || !isRecord(body.fields)) throw new Refusal("The request has no fields.");
   if (body.kind !== kind) throw new Refusal(`This writer handles ${kind} requests, not ${JSON.stringify(body.kind)}.`);
-  return body.fields;
+  const { requestId } = body;
+  if (requestId === undefined) return { kind, fields: body.fields };
+  if (typeof requestId !== "string" || !REQUEST_ID.test(requestId)) throw new Refusal("The request id is not 8 to 64 letters, digits, dashes or underscores.");
+  return { kind, fields: body.fields, requestId };
 }
 
 /** A single-line text field; soma reads a value that starts with "--" as a flag, so that is refused too. */
@@ -43,11 +46,10 @@ function line(fields: Record<string, unknown>, name: string, max: number): strin
 
 export const TASK_LABEL = "desk:principal-intake";
 
-export function readRequestId(text: string): string {
-  const body: unknown = JSON.parse(text);
-  const id = isRecord(body) ? body.requestId : undefined;
-  if (typeof id !== "string" || !/^[\w-]{8,64}$/.test(id)) throw new Refusal("The request has no request id, so a retry could file the task twice.");
-  return id;
+/** The request id a task needs: without it a retry could file the task twice. */
+export function requireRequestId(input: WriterInput): string {
+  if (input.requestId === undefined) throw new Refusal("The request has no request id, so a retry could file the task twice.");
+  return input.requestId;
 }
 
 export const onceMarker = (requestId: string): string => `<!-- desk:request ${requestId} -->`;
@@ -69,11 +71,30 @@ export function goalIdFrom(stdout: string): string | undefined {
   return stdout.split("\n").map((l) => l.trim()).find((l) => /^G\d+$/.test(l));
 }
 
-/** The last non-empty line of a failed command's stderr, for the refusal sentence. */
-const lastLine = (text: string): string => text.trim().split("\n").at(-1)?.trim() ?? "";
+/**
+ * `soma goal list --wording` prints one goal per line, tab-separated:
+ * `G<n>\t<status>\tsupports: [M0, ...]\tsensor: <id or ->\t<wording>`. Returns the first goal whose wording is the same.
+ */
+export function goalWithWording(stdout: string, wording: string): string | undefined {
+  for (const row of stdout.split("\n")) {
+    const cells = row.split("\t");
+    const id = cells[0]?.trim() ?? "";
+    if (!/^G\d+$/.test(id) || cells.length < 5) continue;
+    if (cells.slice(4).join("\t").trim() === wording) return id;
+  }
+  return undefined;
+}
 
+/**
+ * soma goal add has no dedupe key, so the wording is the key: a goal with the same wording is returned
+ * instead of a second one. A retry of one Desk card therefore adds nothing; the request id is not needed.
+ */
 export async function writeGoal(fields: Record<string, unknown>, opts: { soma: string; run: Runner }): Promise<DeskWriteResult> {
   const { wording } = goalFields(fields);
+  const listed = await opts.run([opts.soma, "goal", "list", "--wording"]);
+  if (listed.code !== 0) throw new Refusal(`soma could not list the goals: ${lastLine(listed.stderr) || `exit ${listed.code}`}`);
+  const existing = goalWithWording(listed.stdout, wording);
+  if (existing) return { id: existing, message: `Goal ${existing} already says "${wording}"; nothing new was added.` };
   const out = await opts.run([opts.soma, "goal", "add", "--wording", wording]);
   if (out.code !== 0) throw new Refusal(`soma could not add the goal: ${lastLine(out.stderr) || `exit ${out.code}`}`);
   const id = goalIdFrom(out.stdout);
