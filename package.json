@@ -7,6 +7,7 @@
   "bin": {
     "desk-calendar": "bin/desk-calendar.ts",
     "desk-mail": "bin/desk-mail.ts",
+    "desk-mail-trash": "bin/desk-mail-trash.ts",
     "desk-goal": "bin/desk-goal.ts",
     "desk-task": "bin/desk-task.ts",
     "desk-parse": "bin/desk-parse.ts",
@@ -19,5 +20,8 @@
   "devDependencies": {
     "@types/bun": "^1.4.4",
     "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "imapflow": "^1.1.1"
   }
 }
