@@ -60,10 +60,10 @@ export async function saveDraft(req: DeskMailDraftRequest, run: Runner, emailBin
   ];
   const result = await run(argv, req.body);
   const out = parsed(result.stdout);
-  if (result.code === 0 && out?.success !== true) {
+  if (result.code === 0 && out?.success !== true && out?.success !== false) {
     throw new Refusal(`The email CLI gave no confirmation that the draft was saved; check ${req.account} Drafts before trying again.`);
   }
-  if (result.code !== 0 || !out) {
+  if (result.code !== 0 || !out || out.success === false) {
     const why = typeof out?.error === "string" && out.error ? out.error : lastLine(result.stderr) || `email exited with code ${result.code}`;
     throw new Refusal(`The ${req.account} mail server did not save the draft: ${why.replace(/\s*\n\s*/g, " ")}`);
   }
