@@ -9,7 +9,7 @@ bun bin/desk-ics.ts examples/calendar.ics --days 7
 bun bin/desk-ics.ts https://calendar.example.org/calendar.ics --days 7
 ```
 
-`desk-ics <file-or-https-url> [--days 7]` prints an `events` list for today and the following days. `--days` accepts 1–60. Floating times use the host's time zone. UTC times and IANA `TZID` values are supported. URL requests use HTTPS with a 20-second timeout.
+`desk-ics <file-or-https-url> [--days 7]` prints an `events` list for today and the following days. `--days` accepts 1–60. Floating times use the host's time zone. UTC times and IANA `TZID` values are supported. URL requests use HTTPS with a 20-second timeout. Redirects are refused.
 
 The reader handles unfolded properties, escaped text, date-only events, `DTEND`, `EXDATE`, and daily or weekly recurrence with `INTERVAL`, `COUNT`, `UNTIL`, and plain weekday `BYDAY` values. Weeks start on Monday. It skips unsupported recurrence rules, explicit `WKST`, `RDATE`, and `DURATION` rather than guessing, and reports the skipped count on stderr. Recurrence scanning is bounded to 200 years from its starting point. Overrides with `RECURRENCE-ID` are ignored, so calendars using changed or cancelled individual occurrences need a fuller adapter. This example does not implement all of iCalendar.
 
@@ -65,7 +65,7 @@ mc:
 
 `desk-ntfy --topic <topic> [--server https://ntfy.sh] [--token-env NTFY_TOKEN]` reads one JSON push from stdin. Required fields are `key`, `title`, and `why`. An optional `action` has `label` and an HTTP or HTTPS `url`. The title becomes the notification title, `why` its body, and the URL its click destination. Other URL schemes are omitted.
 
-The command posts once over HTTPS and exits 0 on a successful HTTP answer. It exits 1 with a reason on stderr on malformed input, an HTTP failure, or an eight-second request timeout. It does not retry. If the named environment variable contains a token, it sends a bearer token. Use a server and topic whose access rules suit the information in your notifications. A public topic name is not a password.
+The command posts once over HTTPS and exits 0 on a successful HTTP answer. It exits 1 with a reason on stderr on malformed input, an HTTP failure, or an eight-second request timeout. Redirects are refused. It does not retry. If the named environment variable contains a token, it sends a bearer token. Use a server and topic whose access rules suit the information in your notifications. A public topic name is not a password.
 
 Test the command with an example push:
 

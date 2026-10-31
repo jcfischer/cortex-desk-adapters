@@ -10,7 +10,7 @@ export function icsWindow(now: number, days: number): IcsWindow {
 
 export async function readIcs(where: string, fetchImpl: typeof fetch = fetch): Promise<string> {
   if (/^https:\/\//i.test(where)) {
-    const res = await fetchImpl(where, { signal: AbortSignal.timeout(20_000) });
+    const res = await fetchImpl(where, { redirect: "error", signal: AbortSignal.timeout(20_000) });
     if (!res.ok) throw new Error(`The calendar URL answered HTTP ${res.status}.`);
     return res.text();
   }

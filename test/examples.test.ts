@@ -79,6 +79,26 @@ describe("desk-ics", () => {
     }
   });
 
+  it("uses the first occurrence of a repeated wall time", () => {
+    const text = cal(["UID:fold", "DTSTART;TZID=Europe/Zurich:20261025T023000", "SUMMARY:Repeated"]);
+    expect(parseIcs(text, window("2026-10-25T00:00:00Z", 1)).events[0]?.start).toBe("2026-10-25T00:30:00.000Z");
+  });
+
+  it("ends all-day occurrences at the next local midnight across DST", () => {
+    const prior = process.env.TZ;
+    process.env.TZ = "Europe/Zurich";
+    try {
+      const text = cal(["UID:day", "DTSTART;VALUE=DATE:20260329", "SUMMARY:Day"], ["UID:recurring", "DTSTART;VALUE=DATE:20260328", "RRULE:FREQ=DAILY;COUNT=2", "SUMMARY:Recurring"]);
+      const events = parseIcs(text, { from: Date.parse("2026-03-29T00:00:00+01:00"), to: Date.parse("2026-03-30T00:00:00+02:00") }).events;
+      expect(events).toHaveLength(2);
+      expect(events.every((e) => e.end === "2026-03-29T22:00:00.000Z")).toBe(true);
+      expect(parseIcs(text, { from: Date.parse("2026-03-30T00:00:00+02:00"), to: Date.parse("2026-03-31T00:00:00+02:00") }).events).toEqual([]);
+    } finally {
+      if (prior === undefined) delete process.env.TZ;
+      else process.env.TZ = prior;
+    }
+  });
+
   it("counts an event it cannot read instead of guessing", () => {
     const text = cal(["UID:m", "DTSTART:20261101T090000Z", "RRULE:FREQ=MONTHLY", "SUMMARY:Monthly"], ["UID:n", "SUMMARY:No start"]);
     expect(parseIcs(text, window("2026-11-01T00:00:00Z", 3))).toEqual({ events: [], skipped: 2 });

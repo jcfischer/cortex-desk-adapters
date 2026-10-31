@@ -76,28 +76,40 @@ export function parseTime(prop: IcsProperty): IcsTime | null {
   return { wall, allDay, utc: m[7] === "Z", ...(prop.params.TZID ? { tzid: prop.params.TZID } : {}) };
 }
 
+const zoneFormatters = new Map<string, Intl.DateTimeFormat | null>();
+
+function zoneFormatter(timeZone: string): Intl.DateTimeFormat | null {
+  if (zoneFormatters.has(timeZone)) return zoneFormatters.get(timeZone) ?? null;
+  let formatter: Intl.DateTimeFormat | null;
+  try {
+    formatter = new Intl.DateTimeFormat("en-US", { timeZone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  } catch {
+    return null;
+  }
+  zoneFormatters.set(timeZone, formatter);
+  return formatter;
+}
+
 function zoneOffset(at: number, timeZone: string): number {
-  const parts = new Intl.DateTimeFormat("en-US", { timeZone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }).formatToParts(new Date(at));
+  const formatter = zoneFormatter(timeZone);
+  if (!formatter) throw new Error(`Unknown time zone: ${timeZone}`);
+  const parts = formatter.formatToParts(new Date(at));
   const get = (type: string): number => Number(parts.find((p) => p.type === type)?.value ?? 0);
   return Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second")) - at;
 }
 
-function validZone(timeZone: string): boolean {
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone });
-    return true;
-  } catch {
-    return false;
-  }
-}
+const validZone = (timeZone: string): boolean => zoneFormatter(timeZone) !== null;
 
 export function toInstant(t: IcsTime): number {
   const { y, mo, d, h, mi, s } = t.wall;
   if (t.utc) return Date.UTC(y, mo - 1, d, h, mi, s);
   if (t.allDay || !t.tzid || !validZone(t.tzid)) return new Date(y, mo - 1, d, h, mi, s).getTime();
   const guess = Date.UTC(y, mo - 1, d, h, mi, s);
-  const first = guess - zoneOffset(guess, t.tzid);
-  return guess - zoneOffset(first, t.tzid);
+  const timeZone = t.tzid;
+  const before = zoneOffset(guess - DAY_MS, timeZone);
+  const after = zoneOffset(guess + DAY_MS, timeZone);
+  const candidates = [...new Set([before, after])].map((offset) => guess - offset).filter((at) => at + zoneOffset(at, timeZone) === guess);
+  return candidates.length > 0 ? Math.min(...candidates) : guess - before;
 }
 
 const shiftDays = (w: WallTime, days: number): WallTime => {
@@ -207,7 +219,10 @@ function buildEvents(props: IcsProperty[], window: IcsWindow): DeskSourceEvent[]
   if (endProp && !end) return null;
   if (get("RDATE") || get("DURATION")) return null;
   const startAt = toInstant(start);
-  const length = end ? Math.max(0, toInstant(end) - startAt) : start.allDay ? DAY_MS : 0;
+  const allDayDays = end ? (Date.UTC(end.wall.y, end.wall.mo - 1, end.wall.d) - Date.UTC(start.wall.y, start.wall.mo - 1, start.wall.d)) / DAY_MS : 1;
+  if (end && (end.allDay !== start.allDay || toInstant(end) <= startAt)) return null;
+  const length = end ? toInstant(end) - startAt : start.allDay ? toInstant({ ...start, wall: shiftDays(start.wall, 1) }) - startAt : 0;
+  const endAt = (t: IcsTime): number => start.allDay ? toInstant({ ...t, wall: shiftDays(t.wall, allDayDays) }) : toInstant(t) + length;
   const ruleProp = get("RRULE");
   const rule = ruleProp ? parseRule(ruleProp.value) : null;
   if (ruleProp && !rule) return null;
@@ -215,13 +230,15 @@ function buildEvents(props: IcsProperty[], window: IcsWindow): DeskSourceEvent[]
   const uid = get("UID")?.value.trim() || `${title}@${start.wall.y}-${start.wall.mo}-${start.wall.d}`;
   const location = get("LOCATION") ? unescapeText(get("LOCATION")?.value ?? "").trim() : "";
   const url = get("URL")?.value.trim() ?? "";
-  return occurrences(start, rule, window, length)
-    .map((t) => toInstant(t))
-    .filter((at) => !excluded.has(at))
-    .map((at): DeskSourceEvent => ({
-      id: rule ? `${uid}@${iso(at)}` : uid,
-      start: iso(at),
-      ...(length > 0 ? { end: iso(at + length) } : {}),
+  return occurrences(start, rule, window, start.allDay ? length + DAY_MS : length)
+    .filter((t) => {
+      const at = toInstant(t);
+      return !excluded.has(at) && (length === 0 ? at >= window.from : endAt(t) > window.from);
+    })
+    .map((t): DeskSourceEvent => ({
+      id: rule ? `${uid}@${iso(toInstant(t))}` : uid,
+      start: iso(toInstant(t)),
+      ...(length > 0 ? { end: iso(endAt(t)) } : {}),
       ...(start.allDay ? { allDay: true } : {}),
       title,
       ...(location ? { location } : {}),
