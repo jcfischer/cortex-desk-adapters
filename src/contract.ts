@@ -44,7 +44,7 @@ export interface DeskSourceOutput {
  * On success the writer exits 0 and prints one DeskWriteResult; on refusal it exits non-zero and the
  * last line of stderr, one plain sentence, is shown to the person. A writer creates nothing it refuses.
  */
-export type DeskWriteKind = "calendar" | "task" | "goal";
+export type DeskWriteKind = "calendar" | "task" | "goal" | "note" | "reminder";
 
 export interface DeskCalendarFields {
   title: string;
@@ -70,7 +70,9 @@ export interface DeskGoalFields {
 export type DeskWriteRequest =
   | { kind: "calendar"; fields: DeskCalendarFields }
   | { kind: "task"; fields: DeskTaskFields }
-  | { kind: "goal"; fields: DeskGoalFields };
+  | { kind: "goal"; fields: DeskGoalFields }
+  | { kind: "note"; fields: { text: string } }
+  | { kind: "reminder"; fields: { text: string; due: string } };
 
 /**
  * What a writer reads on stdin: a request plus the id of the confirmed Desk card, 8–64 of [A-Za-z0-9_-].
@@ -87,7 +89,7 @@ export interface DeskWriteResult {
 }
 
 /** The Desk parser contract: Cortex writes one DeskParseRequest to the parser's stdin. */
-export type DeskParseKind = "reminder" | "note" | DeskWriteKind;
+export type DeskParseKind = DeskWriteKind;
 
 export interface DeskParseRequest {
   text: string;
@@ -101,7 +103,5 @@ export interface DeskParseRequest {
 
 /** The parser prints one of these; Cortex validates it and falls back to its own rules on any failure. */
 export type DeskParseResult =
-  | { kind: "reminder"; fields: { text: string; due: string } }
-  | { kind: "note"; fields: { text: string } }
   | DeskWriteRequest
   | { kind: "none"; reason: string };
