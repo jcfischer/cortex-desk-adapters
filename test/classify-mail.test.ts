@@ -51,7 +51,7 @@ const run = async (req: TriageRequest, model: ChatModel, flow = FLOW) => {
   return { transcripts, result: await classifyMail(req, { flow, model, actionDirs: [ACTIONS], transcriptDir: transcripts }) };
 };
 
-const VALID = JSON.stringify({
+const VALID = JSON.stringify({ commitment: "invitation",
   category: "meeting", meetingKey: KEY, reason: "Ada sends the agenda for the Kundenmeeting.", summary: "Ada lists the topics for Monday's meeting.",
   suggestedAction: "link-meeting", evidence: [{ kind: "event", ref: KEY, title: "Switch-Kundenmeeting 2026" }, { kind: "mail", ref: "<prev@example.org>", title: "Re: Kundenmeeting agenda" }],
 });
@@ -60,7 +60,7 @@ describe("the triage flow", () => {
   it("sorts an unimportant sender as bulk without calling the model", async () => {
     const model = stubModel([]);
     const { result } = await run(request({ mail: { ...request().mail, from: { address: "news@grimm.example" }, subject: "Newsletter November 2026" } }), model);
-    expect(result.answer).toEqual({ category: "bulk", reason: "You marked mail from this sender unimportant.", suggestedAction: "archive" });
+    expect(result.answer).toEqual({ category: "bulk", commitment: "none", reason: "You marked mail from this sender unimportant.", suggestedAction: "archive" });
     expect(model.requests).toHaveLength(0);
     expect(result).toMatchObject({ rounds: 0, toolCalls: 0 });
   });
@@ -82,6 +82,8 @@ describe("the triage flow", () => {
     expect(first).toContain(KEY);
     expect(first).toContain("account work");
     expect(first).toContain("A_NOTES_SEARCH");
+    expect(first).toContain("Independently set commitment");
+    expect(result.answer.commitment).toBe("invitation");
     expect(((await stat(transcripts)).mode & 0o777).toString(8)).toBe("700");
     expect((await readdir(transcripts)).some((f) => f.endsWith(".jsonl"))).toBe(true);
   });
@@ -157,4 +159,13 @@ describe("the transcript dir", () => {
     await classifyMail(request({ mail: { ...request().mail, from: { address: "news@grimm.example" } } }), { flow: FLOW, model: stubModel([]), actionDirs: [ACTIONS], transcriptDir: dir });
     expect(((await stat(dir)).mode & 0o777).toString(8)).toBe("700");
   });
+});
+
+
+it("validates explicit commitment independently of ranking, rejects unknown values, preserves missing as unassessed", () => {
+  for (const commitment of ["request", "invitation", "none", "unknown"] as const) {
+    expect(validateTriage({ category: "reply", commitment, reason: "Evidence" }, new Set()).commitment).toBe(commitment);
+  }
+  expect(() => validateTriage({ category: "reply", commitment: "yes", reason: "Evidence" }, new Set())).toThrow("invalid commitment");
+  expect(validateTriage({ category: "meeting", reason: "Existing meeting" }, new Set()).commitment).toBeUndefined();
 });

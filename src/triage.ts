@@ -38,6 +38,7 @@ export interface TriageEvidence {
 
 export interface TriageAnswer {
   category: Category;
+  commitment?: "request" | "invitation" | "none" | "unknown";
   meetingKey?: string;
   reason: string;
   summary?: string;
@@ -115,7 +116,7 @@ export interface Prepared {
 }
 
 export function prepare(req: TriageRequest): Prepared {
-  if (isUnimportantSender(req)) return { triage_answer: { category: "bulk", reason: UNIMPORTANT_REASON, suggestedAction: "archive" }, triage_queue: [] };
+  if (isUnimportantSender(req)) return { triage_answer: { category: "bulk", commitment: "none", reason: UNIMPORTANT_REASON, suggestedAction: "archive" }, triage_queue: [] };
   return {
     triage_answer: null,
     triage_queue: [{
@@ -135,7 +136,7 @@ export function parseAnswerText(text: string): unknown {
   return JSON.parse(text.slice(start, end + 1));
 }
 
-const ANSWER_KEYS = new Set(["category", "meetingKey", "reason", "summary", "suggestedAction", "evidence"]);
+const ANSWER_KEYS = new Set(["commitment", "category", "meetingKey", "reason", "summary", "suggestedAction", "evidence"]);
 const EVIDENCE_KEYS = new Set(["kind", "ref", "title"]);
 
 const extraKey = (o: Record<string, unknown>, allowed: Set<string>): string | undefined => Object.keys(o).find((k) => !allowed.has(k));
@@ -155,6 +156,10 @@ export function validateTriage(answer: unknown, meetingKeys: ReadonlySet<string>
   if (!oneOf(CATEGORIES, answer.category)) throw new Error("the answer's category is not one the Desk knows");
   const category = answer.category;
   const out: TriageAnswer = { category, reason: text(answer.reason, "reason", MAX_REASON) };
+  if (answer.commitment !== undefined) {
+    if (!oneOf(["request", "invitation", "none", "unknown"] as const, answer.commitment)) throw new Error("the answer has an invalid commitment marker");
+    out.commitment = answer.commitment;
+  }
   if (!absent(answer.meetingKey)) {
     const key = text(answer.meetingKey, "meetingKey", MAX_REF);
     if (!meetingKeys.has(key)) throw new Error("the answer names a meeting the request did not list");
