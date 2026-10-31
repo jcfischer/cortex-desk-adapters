@@ -14,7 +14,7 @@ actions:
             max_rounds: 6
             timeout_ms: 60000
             temperature: 0
-            max_tokens: 900
+            max_tokens: 4000
             result_chars: 2500
             collect: triage_text
             system: |
@@ -34,6 +34,7 @@ actions:
               Newsletters and other obvious mass mail need no tools; answer at once.
               For a person you do not place, search earlier mail from them, and calendar events or notes with their name.
               The mail tools take the account the mail arrived in.
+              Unless the mail is bulk, back the answer with evidence: the listed meeting you linked (kind event, ref its key) and what a tool returned that supports the answer.
 
               Answer with one JSON object and nothing else, with only these fields:
               {"category": "...", "meetingKey": "..." (only for a meeting, one of the listed keys), "reason": "one plain sentence, at most 200 characters", "summary": "what the mail says and wants, at most 600 characters", "suggestedAction": "reply" | "archive" | "link-meeting" | "task" | "none", "evidence": [{"kind": "mail" | "event" | "note", "ref": "message id, meeting key or note id", "title": "subject or title"}] (at most 5, only things a tool returned or a listed meeting)}
