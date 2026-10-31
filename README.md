@@ -66,6 +66,7 @@ The Desk's command bar turns typed text into a proposal card. When the person co
 | `dist/desk-reminders-mac [--list <name>]` | `reminder` | a reminder with an alarm in Apple Reminders, through EventKit |
 | `desk-task [--map <ref>]... [--autonomy approve] [--kind research] [--soma soma]` | `task` | a node on a work-graph map, through `soma graph add` |
 | `desk-goal [--soma soma]` | `goal` | a draft Soma goal, through `soma goal add` |
+| `desk-note-tana [--target <nodeId>]` | `note` | a plain node in Tana, through the Tana Input API |
 | `desk-parse [--model haiku] [--claude claude]` | (parser) | nothing; prints a proposal |
 
 ### The writer contract
@@ -100,6 +101,7 @@ Cortex may run a parser before it builds the card. Its stdin gets `{ "text", "no
   ```
 - **`desk-task`** files the task under its map with `--label desk:principal-intake` and `--once "<!-- desk:request <requestId> -->"`, so a retry of one card finds the node it already filed instead of filing a second (it refuses a request without a request id). It uses a checkpoint `desk-<kebab title>` of at most 48 characters, and a body holding the details (or the title) under `## Question` plus a line saying it came from the Desk. With one or more `--map`, any other map is refused. An `owner/name#N` map is filed on github.com with an explicit `--repo`, so it does not depend on the directory Cortex runs the writer from; a qualified ref (`github:host/owner/name#N`) is passed as it is. The `id` is `owner/name#N` and the `url` the issue.
 - **`desk-goal`** first runs `soma goal list --wording`; if an open goal (draft, active or paused) already has exactly this wording (trimmed), it prints that goal's id and adds nothing; a dropped or achieved goal does not count. Otherwise it runs `soma goal add --wording <wording>` and prints the new goal's id (`G<n>`). The wording is the dedupe key, because `soma goal add` takes none, so the request id is accepted but not required. The goal starts as a draft; activate it with `soma goal activate`.
+- **`desk-note-tana`** posts the note text as one plain node (no supertag, no fields) to Tana's Input API, under `--target <nodeId>` or, by default, the Inbox. It reads the API token from `TANA_API_TOKEN`, or else from the `apiToken` in [supertag](https://github.com/jcfischer/supertag-cli)'s config (`$XDG_CONFIG_HOME/supertag/config.json`, which `supertag config --token` writes); it never takes the token in argv. `TANA_API_ENDPOINT` or the config's `apiEndpoint` override the endpoint. The Input API cannot search, so the writer keeps a ledger of request ids at `$XDG_STATE_HOME/cortex-desk-adapters/tana-notes.json` (default `~/.local/state/...`), written only after Tana answers success; a retry within 30 days whose request id is in the ledger adds nothing and reports the node it already made. It refuses a request without a request id or without `text`, and a text over 1000 characters; line breaks become spaces. Without a token, on an HTTP error or a refused payload it exits 1 with one sentence and records nothing. The `id` is the Tana node id and the `url` opens it in Tana.
 - **`desk-parse`** asks a model once (`claude -p --model haiku --output-format text`) to read the text against `now` and `timeZone`, choosing a map only from `maps`. It prints the first JSON object of the answer after a shape check, and exits non-zero on anything else. A call takes about ten seconds.
 
 Configure them under `mc.desk.ask`:
@@ -113,6 +115,7 @@ mc:
         calendar: [/path/to/cortex-desk-adapters/dist/desk-calendar-mac, --create]
         task: [/path/to/cortex-desk-adapters/bin/desk-task.ts, --map, the-metafactory/cortex#2770]
         goal: [/path/to/cortex-desk-adapters/bin/desk-goal.ts]
+        note: [/path/to/cortex-desk-adapters/bin/desk-note-tana.ts]
         reminder: [/path/to/cortex-desk-adapters/dist/desk-reminders-mac]
       taskMaps:
         - { ref: the-metafactory/cortex#2770, label: Desk }

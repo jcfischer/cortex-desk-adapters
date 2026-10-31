@@ -46,9 +46,9 @@ function line(fields: Record<string, unknown>, name: string, max: number): strin
 
 export const TASK_LABEL = "desk:principal-intake";
 
-/** The request id a task needs: without it a retry could file the task twice. */
+/** The request id a writer needs to dedupe: without it a retry could file the item twice. */
 export function requireRequestId(input: WriterInput): string {
-  if (input.requestId === undefined) throw new Refusal("The request has no request id, so a retry could file the task twice.");
+  if (input.requestId === undefined) throw new Refusal("The request has no request id, so a retry could file it twice.");
   return input.requestId;
 }
 
