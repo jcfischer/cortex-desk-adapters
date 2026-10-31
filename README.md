@@ -4,6 +4,8 @@ Source adapters for the [Cortex](https://github.com/the-metafactory/cortex) Desk
 
 The Desk also runs commands to create things the person confirms in its command bar; see [Writers](#writers).
 
+For examples that work without the personal toolkit, see [Portable Desk adapters](EXAMPLES.md): an ICS calendar reader, an IMAP mail reader, and an ntfy transport. A bundled calendar and mail file let you try the Desk without accounts.
+
 | Command | Reads | Prints |
 |---|---|---|
 | `desk-calendar --exchange` | an Exchange calendar through the `ical` CLI | `events` |
