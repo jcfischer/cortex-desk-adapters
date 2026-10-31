@@ -94,6 +94,12 @@ it("refuses an HTTP error, records nothing, and a retry posts again", async () =
   expect(calls).toHaveLength(2);
 });
 
+it("says a 5xx may have created the note, and records nothing", async () => {
+  const { fetch } = fakeFetch(() => new Response("oops", { status: 503 }));
+  await expect(writeNote({ text: "x" }, opts(fetch))).rejects.toThrow("Tana failed with HTTP 503; the note may have been created");
+  expect(existsSync(join(dir, "state", "tana-notes.json"))).toBe(false);
+});
+
 it("refuses when Tana cannot be reached", async () => {
   const fetch: Fetch = async () => {
     throw new Error("ECONNREFUSED");

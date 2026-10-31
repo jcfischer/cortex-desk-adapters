@@ -120,6 +120,7 @@ async function post(text: string, target: string, access: TanaAccess, fetcher: F
   } catch (error) {
     throw new Refusal(`Tana could not be reached (${(error as Error).message}); the note may not have been created.`);
   }
+  if (response.status >= 500) throw new Refusal(`Tana failed with HTTP ${response.status}; the note may have been created, so check Tana before asking again.`);
   if (!response.ok) throw new Refusal(`Tana refused the note with HTTP ${response.status}; nothing was created.`);
   let body: unknown;
   try {
@@ -130,12 +131,14 @@ async function post(text: string, target: string, access: TanaAccess, fetcher: F
   return createdNodeId(body);
 }
 
+const result = (id: string, nodeId: string | undefined, message: string): DeskWriteResult => ({ id, ...(nodeId ? { url: nodeUrl(nodeId) } : {}), message });
+
 export async function writeNote(fields: Record<string, unknown>, opts: NoteOptions): Promise<DeskWriteResult> {
   const text = noteText(fields);
   const target = targetNode(opts.target);
   const now = opts.now ?? Date.now;
   const known = (await readLedger(opts.ledgerPath, now()))[opts.requestId];
-  if (known) return { id: known.id, ...(known.id === opts.requestId ? {} : { url: nodeUrl(known.id) }), message: "This note is already in Tana; nothing new was added." };
+  if (known) return result(known.id, known.id === opts.requestId ? undefined : known.id, "This note is already in Tana; nothing new was added.");
   const access = await opts.access();
   const nodeId = await post(text, target, access, opts.fetch);
   const id = nodeId ?? opts.requestId;
@@ -145,7 +148,7 @@ export async function writeNote(fields: Record<string, unknown>, opts: NoteOptio
     ledger[opts.requestId] = { id, at: now() };
     await writeLedger(opts.ledgerPath, ledger);
   } catch {
-    return { id, ...(nodeId ? { url: nodeUrl(nodeId) } : {}), message: `Added the note to ${where}, but could not record it, so a retry would add it again.` };
+    return result(id, nodeId, `Added the note to ${where}, but could not record it, so a retry would add it again.`);
   }
-  return { id, ...(nodeId ? { url: nodeUrl(nodeId) } : {}), message: `Added the note to ${where}.` };
+  return result(id, nodeId, `Added the note to ${where}.`);
 }
