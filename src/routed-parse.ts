@@ -56,7 +56,7 @@ export async function readBoundedInput(stream: ReadableStream<Uint8Array>, deadl
   }
 }
 
-export function runBounded(argv: string[], stdin: string, deadline: number): Promise<{ code: number; stdout: string; stderr: string }> {
+export function runBounded(argv: string[], stdin: string, deadline: number, stopOnPiError = false): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const [command, ...args] = argv;
     if (!command || Date.now() >= deadline) { reject(new Error("deadline exceeded")); return; }
@@ -65,14 +65,17 @@ export function runBounded(argv: string[], stdin: string, deadline: number): Pro
     const stderr: Buffer[] = [];
     let size = 0;
     let finished = false;
-    const stop = (error: Error) => {
-      if (finished) return;
-      finished = true;
-      clearTimeout(timer);
+    const killGroup = () => {
       try {
         if (process.platform !== "win32" && child.pid !== undefined) process.kill(-child.pid, "SIGKILL");
         else child.kill("SIGKILL");
       } catch { child.kill("SIGKILL"); }
+    };
+    const stop = (error: Error) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      killGroup();
       child.stdin.destroy();
       child.stdout.destroy();
       child.stderr.destroy();
@@ -83,6 +86,23 @@ export function runBounded(argv: string[], stdin: string, deadline: number): Pro
       size += chunk.byteLength;
       if (size > LIMIT) { stop(new Error("command output exceeds size limit")); return; }
       if (channel === "stdout") stdout.push(chunk); else stderr.push(chunk);
+      if (stopOnPiError && channel === "stdout") {
+        const output = Buffer.concat(stdout).toString("utf8");
+        const completeLines = output.slice(0, output.lastIndexOf("\n")).split("\n");
+        const failed = completeLines.some(line => {
+          try {
+            const event: unknown = JSON.parse(line);
+            return isRecord(event) && event.type === "message_end" && isRecord(event.message) && event.message.role === "assistant" && event.message.stopReason === "error";
+          } catch { return false; }
+        });
+        if (failed && !finished) {
+          finished = true;
+          clearTimeout(timer);
+          killGroup();
+          child.stdin.destroy(); child.stdout.destroy(); child.stderr.destroy();
+          resolve({ code: 1, stdout: output, stderr: Buffer.concat(stderr).toString("utf8") });
+        }
+      }
     };
     child.stdout.on("data", (chunk: Buffer) => collect(chunk, "stdout"));
     child.stderr.on("data", (chunk: Buffer) => collect(chunk, "stderr"));
@@ -92,17 +112,18 @@ export function runBounded(argv: string[], stdin: string, deadline: number): Pro
       if (finished) return;
       finished = true;
       clearTimeout(timer);
+      killGroup();
       resolve({ code: code ?? -1, stdout: Buffer.concat(stdout).toString("utf8"), stderr: Buffer.concat(stderr).toString("utf8") });
     });
     child.stdin.end(stdin);
   });
 }
 
-const PI_FLAGS = ["--no-tools", "--no-extensions", "--no-mcp", "--no-skills", "--no-prompt-templates", "--no-context-files", "--no-session", "--print", "--mode", "--system-prompt", "--provider", "--model"];
+const PI_FLAGS = ["--no-tools", "--no-extensions", "--no-mcp", "--no-skills", "--no-prompt-templates", "--no-context-files", "--no-session", "--print", "--mode", "--system-prompt", "--provider", "--model", "--thinking"];
 const CLAUDE_FLAGS = ["--tools", "--strict-mcp-config", "--mcp-config", "--no-session-persistence", "--disable-slash-commands", "--setting-sources", "--output-format", "--print", "--model"];
 export function providerArgv(name: Provider, backend: Backend): string[] {
   if (name === "claude") return [backend.command, "--tools", "", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--no-session-persistence", "--disable-slash-commands", "--setting-sources", "", "--output-format", "json", "--print", "--model", backend.model];
-  return [backend.command, "--no-tools", "--no-extensions", "--no-mcp", "--no-skills", "--no-prompt-templates", "--no-context-files", "--no-session", "--print", "--mode", "json", "--system-prompt", "Parse the supplied request into one JSON object. Do not use tools.", "--provider", backend.provider, "--model", backend.model];
+  return [backend.command, "--no-tools", "--no-extensions", "--no-mcp", "--no-skills", "--no-prompt-templates", "--no-context-files", "--no-session", "--print", "--mode", "json", "--thinking", "off", "--system-prompt", "Parse the supplied request into one JSON object. Do not use tools.", "--provider", backend.provider, "--model", backend.model];
 }
 
 export function readSelection(raw: string): Selection {
@@ -115,7 +136,10 @@ export function readSelection(raw: string): Selection {
     candidates.push({ substrate: c.substrate, reason: c.reason });
   }
   if ((v.kind === "selected" || v.reason === "no-eligible-substrate") && candidates.length !== 3) throw new Error("incomplete selector candidates");
-  if (v.kind === "unavailable" && typeof v.reason === "string" && ["no-eligible-substrate", "invalid-request", "integration-unavailable"].includes(v.reason)) return { kind: "unavailable", reason: v.reason, candidates };
+  if (v.kind === "unavailable" && typeof v.reason === "string" && ["no-eligible-substrate", "invalid-request", "integration-unavailable"].includes(v.reason)) {
+    if (v.reason !== "no-eligible-substrate" && candidates.length !== 0) throw new Error("invalid unavailable selector candidates");
+    return { kind: "unavailable", reason: v.reason, candidates };
+  }
   if (v.kind !== "selected" || !isProvider(v.substrate) || (v.reason !== "most-headroom" && v.reason !== "pi-fallback") || (v.reason === "pi-fallback") !== (v.substrate === "pi") || !candidates.some(c => c.substrate === v.substrate && c.reason === "eligible")) throw new Error("invalid selector decision");
   return { kind: "selected", substrate: v.substrate, reason: v.reason, candidates };
 }
@@ -129,16 +153,20 @@ export function readCompletion(name: Provider, raw: string, code: number): { kin
     const v: unknown = JSON.parse(raw);
     if (!isRecord(v) || v.type !== "result" || typeof v.is_error !== "boolean") throw new Error("invalid Claude completion envelope");
     if (code === 0 && v.is_error === false && v.subtype === "success" && typeof v.result === "string") return { kind: "complete", text: v.result };
-    if ((v.is_error || code !== 0) && quotaError(v)) return { kind: "quota" };
+    if (v.is_error && quotaError(v)) return { kind: "quota" };
     throw new Error("Claude did not complete successfully");
   }
   let terminal: Record<string, unknown> | undefined;
   for (const line of raw.split("\n").filter(line => line.trim())) {
     const v: unknown = JSON.parse(line);
     if (!isRecord(v) || typeof v.type !== "string") throw new Error("invalid Pi event");
+    if (v.type === "error") throw new Error("Pi reported an error event");
     if (v.type === "tool_execution_start" || v.type === "tool_execution_end") throw new Error("Pi attempted a tool");
     if (v.type === "message_end") {
-      if (!isRecord(v.message) || v.message.role !== "assistant" || terminal !== undefined) throw new Error("invalid Pi terminal message");
+      if (!isRecord(v.message)) throw new Error("invalid Pi terminal message");
+      if (v.message.role === "user" || v.message.role === "system") continue;
+      if (v.message.role !== "assistant") throw new Error("invalid Pi terminal message");
+      if (terminal !== undefined) throw new Error("Pi returned multiple assistant completions");
       terminal = v.message;
     }
   }
@@ -175,7 +203,7 @@ export async function routedParse(raw: string, config: RoutingConfig, deadline: 
       if (!permitted.includes(provider)) continue;
       if (!backend) { evidence.capabilityExclusions.push({ provider, reason: "not configured" }); continue; }
       try {
-        const help = await runBounded([backend.command, "--help"], "", Math.min(deadline, Date.now() + 2000));
+        const help = await runBounded([backend.command, "--help"], "", deadline);
         const flags = provider === "claude" ? CLAUDE_FLAGS : PI_FLAGS;
         const advertised = new Set(`${help.stdout}\n${help.stderr}`.match(/--[a-z][a-z-]*/g) ?? []);
         if (help.code !== 0 || !flags.every(flag => advertised.has(flag))) throw new Error("required tools-disabled flags unavailable");
@@ -193,7 +221,7 @@ export async function routedParse(raw: string, config: RoutingConfig, deadline: 
       const backend = config.providers[provider];
       if (!backend) throw new Error("selector chose an unconfigured provider");
       evidence.attempted.push(provider);
-      const output = await runBounded(providerArgv(provider, backend), prompt, deadline);
+      const output = await runBounded(providerArgv(provider, backend), prompt, deadline, provider !== "claude");
       const completion = readCompletion(provider, output.stdout, output.code);
       if (completion.kind === "quota") { evidence.fallbackReasons.push({ provider, reason: "quota-exhausted" }); continue; }
       const result: DeskParseResult = validateParse(extractJson(completion.text), request);
