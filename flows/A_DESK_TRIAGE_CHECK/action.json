@@ -1,0 +1,12 @@
+{
+  "name": "A_DESK_TRIAGE_CHECK",
+  "version": "1.0.0",
+  "description": "Checks the triage answer against the Desk's rules: a known category, a listed meeting key, bounded reason, summary and evidence, no unknown fields. Fails on anything else.",
+  "effect": "read",
+  "input": {
+    "request": { "type": "object", "required": true }
+  },
+  "output": {
+    "triage": { "type": "object", "description": "The checked answer" }
+  }
+}

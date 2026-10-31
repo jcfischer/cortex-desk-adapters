@@ -1,0 +1,3 @@
+{ "name": "A_MAIL_SEARCH", "version": "1.0.0", "description": "Fake mail search.", "effect": "read",
+  "input": { "account": { "type": "string", "required": true }, "from": { "type": "string" }, "query": { "type": "string" } },
+  "output": { "hits": { "type": "array" } } }

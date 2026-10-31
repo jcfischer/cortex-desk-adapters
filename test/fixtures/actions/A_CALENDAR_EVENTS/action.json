@@ -1,0 +1,3 @@
+{ "name": "A_CALENDAR_EVENTS", "version": "1.0.0", "description": "Fake calendar.", "effect": "read",
+  "input": { "query": { "type": "string", "required": true } },
+  "output": { "events": { "type": "array" } } }

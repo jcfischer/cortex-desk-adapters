@@ -1,0 +1,3 @@
+{ "name": "A_NOTES_SEARCH", "version": "1.0.0", "description": "Fake notes.", "effect": "read",
+  "input": { "query": { "type": "string", "required": true } },
+  "output": { "hits": { "type": "array" } } }
