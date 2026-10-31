@@ -133,8 +133,15 @@ mc:
     mail:
       actions:
         trash: [/path/to/cortex-desk-adapters/bin/desk-mail-trash.ts]
+        draft: [/path/to/cortex-desk-adapters/bin/desk-mail-draft.ts, --email, /path/to/email]
         timeoutSeconds: 30
 ```
+
+### Reply drafts
+
+With `mc.desk.mail.actions.draft` set, a mail item offers "Draft a reply" (as its first action when the classifier suggests a reply). The person writes the reply in the Desk's detail panel and confirms; Cortex runs the command without a shell and writes `{ "action": "draft", "account", "messageId", "to", "subject", "body" }` to its stdin (`DeskMailDraftRequest`). `to` is the original sender, `subject` the original subject with `Re: `. Exit 0 means the draft is saved; otherwise the last line of stderr is shown and the mail stays on the Desk. A draft command never sends mail.
+
+`desk-mail-draft [--email /path/to/email]` is that command for the `email` CLI: it runs `email draft create` with the account, recipient, subject and `In-Reply-To`, as plain text, with the reply on stdin. The `email` CLI appends the message to the account's Drafts mailbox over IMAP. It refuses a recipient that is not one plain address, a subject with a line break, and an empty reply.
 
 ## Mail classifier
 

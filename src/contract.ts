@@ -114,3 +114,15 @@ export interface DeskMailActionRequest {
   /** The Message-ID without angle brackets, as the mail source sent it. */
   messageId: string;
 }
+
+/** The Desk reply-draft contract: Cortex writes this to the `mc.desk.mail.actions.draft` command's stdin. The command never sends. */
+export interface DeskMailDraftRequest {
+  action: "draft";
+  account: string;
+  /** The Message-ID being replied to, without angle brackets. */
+  messageId: string;
+  /** The original sender's address. */
+  to: string;
+  subject: string;
+  body: string;
+}

@@ -8,6 +8,7 @@
     "desk-calendar": "bin/desk-calendar.ts",
     "desk-mail": "bin/desk-mail.ts",
     "desk-mail-trash": "bin/desk-mail-trash.ts",
+    "desk-mail-draft": "bin/desk-mail-draft.ts",
     "desk-goal": "bin/desk-goal.ts",
     "desk-task": "bin/desk-task.ts",
     "desk-parse": "bin/desk-parse.ts",
