@@ -13,7 +13,10 @@
     "desk-task": "bin/desk-task.ts",
     "desk-parse": "bin/desk-parse.ts",
     "desk-note-tana": "bin/desk-note-tana.ts",
-    "desk-classify-mail": "bin/desk-classify-mail.ts"
+    "desk-classify-mail": "bin/desk-classify-mail.ts",
+    "desk-ics": "bin/desk-ics.ts",
+    "desk-imap": "bin/desk-imap.ts",
+    "desk-ntfy": "bin/desk-ntfy.ts"
   },
   "scripts": {
     "test": "bun test",
