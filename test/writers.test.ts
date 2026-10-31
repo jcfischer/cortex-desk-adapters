@@ -45,6 +45,8 @@ it("reads goal ids and wordings from soma goal list --wording", () => {
   expect(goalWithWording(listed, "Publish a post")).toBeUndefined();
   expect(goalWithWording("G5\tactive\tsupports: [M0]\tsensor: -", "x")).toBeUndefined();
   expect(goalWithWording("", "x")).toBeUndefined();
+  expect(goalWithWording("G3\tdropped\tsupports: []\tsensor: -\tRun twice a week", "Run twice a week")).toBeUndefined();
+  expect(goalWithWording("G4\tachieved\tsupports: []\tsensor: -\tRun twice a week", "Run twice a week")).toBeUndefined();
 });
 
 it("returns the goal that already has the wording, and adds nothing", async () => {

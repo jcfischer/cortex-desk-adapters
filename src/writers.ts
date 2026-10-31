@@ -75,11 +75,13 @@ export function goalIdFrom(stdout: string): string | undefined {
  * `soma goal list --wording` prints one goal per line, tab-separated:
  * `G<n>\t<status>\tsupports: [M0, ...]\tsensor: <id or ->\t<wording>`. Returns the first goal whose wording is the same.
  */
+const OPEN_GOAL = new Set(["draft", "active", "paused"]);
+
 export function goalWithWording(stdout: string, wording: string): string | undefined {
   for (const row of stdout.split("\n")) {
     const cells = row.split("\t");
     const id = cells[0]?.trim() ?? "";
-    if (!/^G\d+$/.test(id) || cells.length < 5) continue;
+    if (!/^G\d+$/.test(id) || cells.length < 5 || !OPEN_GOAL.has(cells[1]?.trim() ?? "")) continue;
     if (cells.slice(4).join("\t").trim() === wording) return id;
   }
   return undefined;
