@@ -105,3 +105,12 @@ export interface DeskParseRequest {
 export type DeskParseResult =
   | DeskWriteRequest
   | { kind: "none"; reason: string };
+
+/** The Desk mail-action contract: Cortex writes this to the `mc.desk.mail.actions.trash` command's stdin. */
+export interface DeskMailActionRequest {
+  action: "trash";
+  /** The account name the mail source put on the item. */
+  account: string;
+  /** The Message-ID without angle brackets, as the mail source sent it. */
+  messageId: string;
+}

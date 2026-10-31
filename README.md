@@ -121,6 +121,21 @@ mc:
         - { ref: the-metafactory/cortex#2770, label: Desk }
 ```
 
+## Mail actions
+
+A mail item on the Desk offers Delete (and "Seen, delete" on `fyi` and `bulk` mail). Cortex then runs the command set as `mc.desk.mail.actions.trash`, without a shell, and writes one JSON object to its stdin: `{ "action": "trash", "account": "<the item's account>", "messageId": "<the item's id>" }` (`DeskMailActionRequest` in [`src/contract.ts`](src/contract.ts)). Exit 0 means the message moved; on any other exit the last line of stderr is shown to the person.
+
+`desk-mail-trash [--mailbox INBOX]` is that command for the `email` CLI's accounts. It reads the account's IMAP settings from `~/.config/email/config.json` (a password as `keychain:<service>`, `env:<VAR>` or plain text, as the `email` CLI reads it), finds the message in INBOX by an IMAP header search, keeps only messages whose Message-ID is exactly the one asked for, and moves that one message to the mailbox flagged `\Trash` (else one named Trash, Deleted Items or Deleted Messages). It never deletes or expunges. It refuses, and moves nothing, when the message is not in INBOX ("The message is no longer in the work INBOX."), when more than one message has that Message-ID, or when the account has no Trash.
+
+```yaml
+mc:
+  desk:
+    mail:
+      actions:
+        trash: [/path/to/cortex-desk-adapters/bin/desk-mail-trash.ts]
+        timeoutSeconds: 30
+```
+
 ## Develop
 
 ```sh
