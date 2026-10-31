@@ -11,7 +11,7 @@ import { readRequest, requireRequestId, runWriter } from "../src/writers";
 
 const { values } = parseArgs({
   options: {
-    target: { type: "string", default: "INBOX" },
+    target: { type: "string" },
   },
 });
 

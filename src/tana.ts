@@ -118,7 +118,7 @@ async function post(text: string, target: string, access: TanaAccess, fetcher: F
       body: JSON.stringify(notePayload(text, target)),
     });
   } catch (error) {
-    throw new Refusal(`Tana could not be reached (${(error as Error).message}); the note may not have been created.`);
+    throw new Refusal(`Tana could not be reached (${(error as Error).message}); the note may have been created, so check Tana before asking again.`);
   }
   if (response.status >= 500) throw new Refusal(`Tana failed with HTTP ${response.status}; the note may have been created, so check Tana before asking again.`);
   if (!response.ok) throw new Refusal(`Tana refused the note with HTTP ${response.status}; nothing was created.`);
