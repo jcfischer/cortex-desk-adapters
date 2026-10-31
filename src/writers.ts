@@ -138,7 +138,7 @@ export function mapTarget(map: string): { target: string; repo?: string } {
   throw new Refusal(`"${map}" is not a map ref like owner/name#123.`);
 }
 
-/** `soma graph add --json` prints `{ repo, node, parent, blockedBy }`; on github.com repo is owner/name, node the issue number. */
+/** `soma graph add --json` prints `{ repo, node, parent, blockedBy }`, plus `existing` with `--once` (the-metafactory/soma#1145); on github.com repo is owner/name, node the issue number. */
 export function createdNode(stdout: string): DeskWriteResult & { existing: boolean } {
   let body: unknown;
   try {
