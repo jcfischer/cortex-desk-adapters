@@ -9,7 +9,8 @@
     "desk-mail": "bin/desk-mail.ts",
     "desk-goal": "bin/desk-goal.ts",
     "desk-task": "bin/desk-task.ts",
-    "desk-parse": "bin/desk-parse.ts"
+    "desk-parse": "bin/desk-parse.ts",
+    "desk-note-tana": "bin/desk-note-tana.ts"
   },
   "scripts": {
     "test": "bun test",
