@@ -14,6 +14,7 @@ const isProvider = (v: unknown): v is Provider => v === "claude" || v === "codex
 const isText = (v: unknown): v is string => typeof v === "string" && v.trim().length > 0;
 const message = (v: unknown) => v instanceof Error ? v.message : String(v);
 const LIMIT = 256 * 1024;
+export const PARSER_SYSTEM = "Parse the supplied request into one JSON object. Do not use tools.";
 
 function providers(v: unknown): Provider[] {
   if (!Array.isArray(v) || !v.every(isProvider) || new Set(v).size !== v.length) throw new Error("invalid permitted providers");
@@ -120,10 +121,13 @@ export function runBounded(argv: string[], stdin: string, deadline: number, stop
 }
 
 const PI_FLAGS = ["--no-tools", "--no-extensions", "--no-mcp", "--no-skills", "--no-prompt-templates", "--no-context-files", "--no-session", "--print", "--mode", "--system-prompt", "--provider", "--model", "--thinking"];
-const CLAUDE_FLAGS = ["--tools", "--strict-mcp-config", "--mcp-config", "--no-session-persistence", "--disable-slash-commands", "--setting-sources", "--output-format", "--print", "--model"];
+const CLAUDE_FLAGS = ["--tools", "--strict-mcp-config", "--mcp-config", "--no-session-persistence", "--disable-slash-commands", "--setting-sources", "--output-format", "--print", "--model", "--safe-mode", "--system-prompt"];
+export function claudeArgv(command: string, model: string, format: "json" | "text" = "json"): string[] {
+  return [command, "--tools", "", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--no-session-persistence", "--disable-slash-commands", "--setting-sources", "", "--safe-mode", "--system-prompt", PARSER_SYSTEM, "--output-format", format, "--print", "--model", model];
+}
 export function providerArgv(name: Provider, backend: Backend): string[] {
-  if (name === "claude") return [backend.command, "--tools", "", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--no-session-persistence", "--disable-slash-commands", "--setting-sources", "", "--output-format", "json", "--print", "--model", backend.model];
-  return [backend.command, "--no-tools", "--no-extensions", "--no-mcp", "--no-skills", "--no-prompt-templates", "--no-context-files", "--no-session", "--print", "--mode", "json", "--thinking", "off", "--system-prompt", "Parse the supplied request into one JSON object. Do not use tools.", "--provider", backend.provider, "--model", backend.model];
+  if (name === "claude") return claudeArgv(backend.command, backend.model);
+  return [backend.command, "--no-tools", "--no-extensions", "--no-mcp", "--no-skills", "--no-prompt-templates", "--no-context-files", "--no-session", "--print", "--mode", "json", "--thinking", "off", "--system-prompt", PARSER_SYSTEM, "--provider", backend.provider, "--model", backend.model];
 }
 
 export function readSelection(raw: string): Selection {
@@ -198,17 +202,21 @@ export async function routedParse(raw: string, config: RoutingConfig, deadline: 
     const request = readParseRequest(raw);
     const prompt = buildPrompt(request);
     const capable: Provider[] = [];
-    for (const provider of PROVIDERS) {
+    type Capability = { provider: Provider; kind: "capable" } | { provider: Provider; kind: "excluded"; reason: string };
+    const checks = await Promise.all(PROVIDERS.filter(provider => permitted.includes(provider)).map(async (provider): Promise<Capability> => {
       const backend = config.providers[provider];
-      if (!permitted.includes(provider)) continue;
-      if (!backend) { evidence.capabilityExclusions.push({ provider, reason: "not configured" }); continue; }
+      if (!backend) return { provider, kind: "excluded", reason: "not configured" };
       try {
         const help = await runBounded([backend.command, "--help"], "", deadline);
         const flags = provider === "claude" ? CLAUDE_FLAGS : PI_FLAGS;
         const advertised = new Set(`${help.stdout}\n${help.stderr}`.match(/--[a-z][a-z-]*/g) ?? []);
         if (help.code !== 0 || !flags.every(flag => advertised.has(flag))) throw new Error("required tools-disabled flags unavailable");
-        capable.push(provider);
-      } catch (error) { evidence.capabilityExclusions.push({ provider, reason: message(error) }); }
+        return { provider, kind: "capable" };
+      } catch (error) { return { provider, kind: "excluded", reason: message(error) }; }
+    }));
+    for (const check of checks) {
+      if (check.kind === "capable") capable.push(check.provider);
+      else evidence.capabilityExclusions.push({ provider: check.provider, reason: check.reason });
     }
     while (evidence.attempted.length < PROVIDERS.length) {
       const selectionOutput = await runBounded([config.ranger.command, "select-substrate", "--config", config.ranger.config], JSON.stringify({ version: 1, permitted, attempted: evidence.attempted, parserCapable: capable }), deadline);

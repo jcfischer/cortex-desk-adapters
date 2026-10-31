@@ -17,7 +17,7 @@ async function fixture(options: { order?: Provider[]; behavior?: Partial<Record<
   const log = join(dir, "calls.jsonl");
   const body = `const argv=process.argv.slice(2); const input=await new Response(Bun.stdin.stream()).text();
 await Bun.write(Bun.file(${JSON.stringify(log)}), (await Bun.file(${JSON.stringify(log)}).exists()?await Bun.file(${JSON.stringify(log)}).text():"")+JSON.stringify({role:ROLE,argv,input})+"\\n");`;
-  const help = "--no-tools --no-extensions --no-mcp --no-skills --no-prompt-templates --no-context-files --no-session --print --mode --provider --model --thinking --system-prompt --tools --strict-mcp-config --mcp-config --no-session-persistence --disable-slash-commands --setting-sources --output-format";
+  const help = "--no-tools --no-extensions --no-mcp --no-skills --no-prompt-templates --no-context-files --no-session --print --mode --provider --model --thinking --system-prompt --safe-mode --tools --strict-mcp-config --mcp-config --no-session-persistence --disable-slash-commands --setting-sources --output-format";
   const programs: Record<Provider, string> = { claude: join(dir, "claude"), codex: join(dir, "codex"), pi: join(dir, "pi") };
   for (const role of ["claude", "codex", "pi"]) {
     const behavior = options.behavior?.[role === "claude" ? "claude" : role === "codex" ? "codex" : "pi"] ?? "success";
@@ -89,6 +89,8 @@ it("reselects only on quota failure, never repeats a provider and preserves the 
   const providers = calls.filter(c => c.role !== "selector");
   expect(providers.map(c => c.role)).toEqual(["claude", "codex", "pi"]);
   expect(new Set(providers.map(c => c.input)).size).toBe(1);
+  expect(new Set(providers.map(c => c.argv[c.argv.indexOf("--system-prompt") + 1])).size).toBe(1);
+  expect(providers[0].argv).toContain("--safe-mode");
   expect(calls.filter(c => c.role === "selector").map(c => JSON.parse(c.input).attempted)).toEqual([[], ["claude"], ["claude", "codex"]]);
   expect(providers[0].argv).toContain("--tools");
   expect(providers[0].argv[providers[0].argv.indexOf("--tools") + 1]).toBe("");

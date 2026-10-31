@@ -2,7 +2,7 @@
 import { parseArgs } from "node:util";
 import { buildPrompt, extractJson, readParseRequest, validateParse } from "../src/parse";
 import { lastLine, spawnRunner } from "../src/run";
-import { readBoundedInput, readRoutingConfig, routedParse, unavailable } from "../src/routed-parse";
+import { claudeArgv, readBoundedInput, readRoutingConfig, routedParse, unavailable } from "../src/routed-parse";
 
 const started = Date.now();
 const { values } = parseArgs({
@@ -25,7 +25,7 @@ if (values["routing-config"] !== undefined) {
 } else {
   try {
     const req = readParseRequest(await new Response(Bun.stdin.stream()).text());
-    const out = await spawnRunner([values.claude ?? "claude", "-p", "--model", values.model ?? "haiku", "--output-format", "text", "--tools", "", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--no-session-persistence", "--disable-slash-commands", "--setting-sources", ""], buildPrompt(req));
+    const out = await spawnRunner(claudeArgv(values.claude ?? "claude", values.model ?? "haiku", "text"), buildPrompt(req));
     if (out.code !== 0) throw new Error(`claude exited ${out.code}: ${lastLine(out.stderr)}`);
     process.stdout.write(`${JSON.stringify(validateParse(extractJson(out.stdout), req))}\n`);
   } catch (error) {
