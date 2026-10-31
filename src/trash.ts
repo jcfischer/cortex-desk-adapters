@@ -17,6 +17,7 @@ export interface ImapAccount {
 
 /** The few IMAP calls the trash command makes, so tests never reach a mail server. */
 export interface Mailbox {
+  canMove(): boolean;
   open(path: string): Promise<() => void>;
   findUids(messageId: string): Promise<number[]>;
   messageIdOf(uid: number): Promise<string | undefined>;
@@ -26,9 +27,9 @@ export interface Mailbox {
 
 const MESSAGE_ID = /^[^\s<>]{1,512}$/;
 const ACCOUNT = /^[\w.-]{1,64}$/;
-export const TRASH_NAMES = ["Trash", "Deleted Items", "Deleted Messages"];
+const TRASH_NAMES = ["Trash", "Deleted Items", "Deleted Messages"];
 
-export const emailConfigPath = (): string => join(homedir(), ".config", "email", "config.json");
+const emailConfigPath = (): string => join(homedir(), ".config", "email", "config.json");
 
 const bare = (id: string): string => id.trim().replace(/^<|>$/g, "");
 
@@ -90,10 +91,11 @@ export async function imapAccount(name: string, run: Runner, path = emailConfigP
 }
 
 /**
- * Moves the one INBOX message with this Message-ID to the account's Trash. Never deletes, never expunges,
- * and refuses rather than move anything when the id matches no message or more than one.
+ * Moves the one INBOX message with this Message-ID to the account's Trash with IMAP MOVE. Never deletes or expunges:
+ * it refuses a server without MOVE, and refuses rather than move anything when the id matches no message or more than one.
  */
 export async function trashMessage(req: DeskMailActionRequest, box: Mailbox, inbox = "INBOX"): Promise<DeskWriteResult> {
+  if (!box.canMove()) throw new Refusal(`The ${req.account} mail server cannot move messages (no IMAP MOVE), so nothing was moved.`);
   const target = await box.trashPath();
   if (!target) throw new Refusal(`The ${req.account} account has no Trash mailbox.`);
   const release = await box.open(inbox);

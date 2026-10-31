@@ -5,6 +5,7 @@ import { pickTrash } from "./trash";
 /** A Mailbox over one ImapFlow connection; the caller connects and logs out. */
 export function imapMailbox(client: ImapFlow): Mailbox {
   return {
+    canMove: () => client.capabilities.has("MOVE"),
     open: async (path) => {
       const lock = await client.getMailboxLock(path);
       return () => lock.release();
@@ -20,5 +21,12 @@ export function imapMailbox(client: ImapFlow): Mailbox {
 }
 
 export function connectImap(account: ImapAccount): ImapFlow {
-  return new ImapFlow({ host: account.host, port: account.port, secure: account.secure, auth: { user: account.user, pass: account.pass }, logger: false });
+  return new ImapFlow({
+    host: account.host,
+    port: account.port,
+    secure: account.secure,
+    ...(account.secure ? {} : { doSTARTTLS: true }),
+    auth: { user: account.user, pass: account.pass },
+    logger: false,
+  });
 }

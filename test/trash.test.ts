@@ -8,11 +8,12 @@ import { Refusal } from "../src/writers";
 
 const REQ = { action: "trash" as const, account: "work", messageId: "abc@gitlab.example" };
 
-function fakeBox(messages: Record<number, string>, trash: string | null = "Trash") {
+function fakeBox(messages: Record<number, string>, trash: string | null = "Trash", canMove = true) {
   const moved: { uid: number; target: string }[] = [];
   const opened: string[] = [];
   let released = 0;
   const box: Mailbox = {
+    canMove: () => canMove,
     open: async (path) => {
       opened.push(path);
       return () => { released += 1; };
@@ -49,6 +50,13 @@ it("refuses when two messages share the Message-ID, or the account has no Trash"
   const noTrash = fakeBox({ 1: "<abc@gitlab.example>" }, null);
   await expect(trashMessage(REQ, noTrash.box)).rejects.toThrow("The work account has no Trash mailbox.");
   expect(noTrash.moved).toEqual([]);
+});
+
+it("refuses a server without IMAP MOVE before it opens the mailbox, so nothing is expunged", async () => {
+  const f = fakeBox({ 7: "<abc@gitlab.example>" }, "Trash", false);
+  await expect(trashMessage(REQ, f.box)).rejects.toThrow("The work mail server cannot move messages (no IMAP MOVE), so nothing was moved.");
+  expect(f.moved).toEqual([]);
+  expect(f.opened).toEqual([]);
 });
 
 it("reads only a trash request with an account and a Message-ID", () => {
