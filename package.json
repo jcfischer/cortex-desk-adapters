@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "license": "MIT",
   "type": "module",
-  "description": "Source adapters, writers and a parser for the Cortex Desk: commands that print or create Desk JSON.",
+  "description": "Source adapters, writers, a parser and a mail classifier for the Cortex Desk: commands that print or create Desk JSON.",
   "bin": {
     "desk-calendar": "bin/desk-calendar.ts",
     "desk-mail": "bin/desk-mail.ts",
@@ -11,7 +11,8 @@
     "desk-goal": "bin/desk-goal.ts",
     "desk-task": "bin/desk-task.ts",
     "desk-parse": "bin/desk-parse.ts",
-    "desk-note-tana": "bin/desk-note-tana.ts"
+    "desk-note-tana": "bin/desk-note-tana.ts",
+    "desk-classify-mail": "bin/desk-classify-mail.ts"
   },
   "scripts": {
     "test": "bun test",
@@ -22,6 +23,7 @@
     "typescript": "^7.0.2"
   },
   "dependencies": {
-    "imapflow": "^1.1.1"
+    "imapflow": "^1.1.1",
+    "pulse": "github:the-metafactory/pulse#v0.31.1"
   }
 }

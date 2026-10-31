@@ -136,6 +136,42 @@ mc:
         timeoutSeconds: 30
 ```
 
+## Mail classifier
+
+Cortex can sort unread mail with a command set as `mc.desk.mail.classifier.command`. It runs the command without a shell once per unclassified unread mail, writes one JSON object to its stdin and kills it after `timeoutSeconds`:
+
+`{ "mail": { "id", "from": { "name"?, "address" }, "subject", "firstParagraph", "receivedAt", "account"? }, "meetings": [{ "key", "title", "start" }], "vips": [...], "unimportant": [...], "corrections": [{ "kind", "source", "mode", "label" }] }`
+
+The command prints one answer: `{ "category": "action" | "reply" | "meeting" | "fyi" | "bulk", "meetingKey"?, "reason", "summary"?, "suggestedAction"?, "evidence"? }`. `meetingKey` must be one of the request's keys; `reason` is at most 200 characters, `summary` at most 600; `suggestedAction` is `reply`, `archive`, `link-meeting`, `task` or `none`; `evidence` holds at most 5 `{ "kind": "mail" | "event" | "note", "ref", "title" }`. Any other answer, or a non-zero exit, makes the Desk sort that mail by its own rules and try again later. A key configured as `apiKeyFile` or `apiKeyEnv` reaches the command as `DESK_CLASSIFIER_KEY` in its environment.
+
+`desk-classify-mail` is that command. It hosts the Pulse flow [`flows/desk-mail-triage.yaml`](flows/desk-mail-triage.yaml) on one OpenAI-compatible model:
+
+1. `A_DESK_TRIAGE_PREPARE` answers `bulk` for a sender on the unimportant list (unless also a VIP) without calling the model.
+2. A `research:` step lets the model call `A_MAIL_SEARCH`, `A_MAIL_READ`, `A_CALENDAR_EVENTS` and `A_NOTES_SEARCH` (the read actions from pulse-actions) for up to 6 rounds within 60 s, with the corrections in the prompt as examples. Zero tool calls is fine for obvious mail.
+3. `A_DESK_TRIAGE_CHECK` checks the answer against the rules above and fails on anything else, including unknown fields.
+
+```sh
+desk-classify-mail --flow <path>/flows/desk-mail-triage.yaml --base-url <url up to /v1> --model <name> \
+  [--key-env DESK_CLASSIFIER_KEY] [--ca-file <pem>] [--actions-dir <dir>]... [--mail-accounts work,personal] [--state-dir <dir>]
+```
+
+- The key comes from the env var `--key-env` names, never from argv. `--ca-file` trusts a private CA for the gateway.
+- The read actions are looked up in `--actions-dir`, by default `~/.config/metafactory/arc/actions`, where arc installs pulse-actions. Their backends and env vars (`PULSE_MAIL_CLI`, `PULSE_CALENDAR_CLI`, `PULSE_NOTES_CLI`, `PULSE_CALENDAR_SOURCES`) are documented there. Mail tools refuse every account until `PULSE_MAIL_ACCOUNTS` is set; `--mail-accounts` sets it.
+- Research transcripts go to `<state-dir>/desk-classify-mail/transcripts` (0700; default state dir `$XDG_STATE_HOME/cortex-desk-adapters`, else `~/.local/state/cortex-desk-adapters`), never to stdout. On success, one stderr line reports the category, time, tool rounds and tool calls.
+- An unreachable gateway, a research step that times out, or an invalid answer exits non-zero with one stderr line, within 65 s.
+
+```yaml
+mc:
+  desk:
+    mail:
+      classifier:
+        command: [/path/to/cortex-desk-adapters/bin/desk-classify-mail.ts, --flow, /path/to/cortex-desk-adapters/flows/desk-mail-triage.yaml,
+                  --base-url, https://gateway.example/v1, --model, coder, --mail-accounts, work]
+        apiKeyFile: ~/.config/gateway/key
+        timeoutSeconds: 75
+        maxPerPass: 10
+```
+
 ## Develop
 
 ```sh

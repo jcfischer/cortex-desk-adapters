@@ -1,0 +1,3 @@
+{ "name": "A_MAIL_READ", "version": "1.0.0", "description": "Fake mail read.", "effect": "read",
+  "input": { "account": { "type": "string", "required": true }, "messageId": { "type": "string", "required": true } },
+  "output": { "body": { "type": "string" } } }
