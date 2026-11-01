@@ -82,6 +82,16 @@ const records = (v: unknown, field: string): Record<string, unknown>[] => {
   return v;
 };
 
+function readExample(x: Record<string, unknown>, i: number): TriageExample {
+  const at = (field: string): string => `examples[${i}].${field}`;
+  return {
+    subject: str(x.subject, at("subject")), summary: str(x.summary, at("summary")), sender: str(x.sender, at("sender")),
+    action: str(x.action, at("action")), decidedAt: str(x.decidedAt, at("decidedAt")),
+    similarity: num(x.similarity, at("similarity")), weight: num(x.weight, at("weight")),
+    ...(typeof x.category === "string" && x.category ? { category: x.category } : {}),
+  };
+}
+
 export function readTriageRequest(text: string): TriageRequest {
   const body: unknown = JSON.parse(text);
   if (!isRecord(body) || !isRecord(body.mail) || !isRecord(body.mail.from)) throw new Error("the request has no mail");
@@ -103,13 +113,8 @@ export function readTriageRequest(text: string): TriageRequest {
     corrections: records(body.corrections, "corrections").slice(0, MAX_CORRECTIONS).map((x, i) => ({
       kind: str(x.kind, `corrections[${i}].kind`), source: str(x.source, `corrections[${i}].source`), mode: str(x.mode, `corrections[${i}].mode`), label: str(x.label, `corrections[${i}].label`),
     })),
-    examples: records(body.examples, "examples").slice(0, MAX_EXAMPLES).map((x, i) => ({
-      subject: str(x.subject, `examples[${i}].subject`), summary: str(x.summary, `examples[${i}].summary`), sender: str(x.sender, `examples[${i}].sender`),
-      action: str(x.action, `examples[${i}].action`), decidedAt: str(x.decidedAt, `examples[${i}].decidedAt`),
-      similarity: num(x.similarity, `examples[${i}].similarity`), weight: num(x.weight, `examples[${i}].weight`),
-      ...(typeof x.category === "string" && x.category ? { category: x.category } : {}),
-    })),
-    examplesBasis: typeof body.examplesBasis === "string" ? body.examplesBasis : "sender",
+    examples: records(body.examples, "examples").slice(0, MAX_EXAMPLES).map(readExample),
+    examplesBasis: typeof body.examplesBasis === "string" ? body.examplesBasis : "",
   };
 }
 
@@ -143,10 +148,17 @@ const BASIS_TEXT: Record<string, string> = {
   sender: "found by the same sender domain or mailing list, not by content",
 };
 
+function renderExample(e: TriageExample): string {
+  const correction = e.weight > 1 ? " (correction, weight 2)" : "";
+  const sorted = e.category ? `, sorted as ${e.category}` : "";
+  return `- ${e.action}${correction}, similarity ${e.similarity}: "${e.subject}" from ${e.sender}, ${e.decidedAt}${sorted}. ${e.summary}`.trim();
+}
+
 export function renderExamples(req: TriageRequest): string {
   if (req.examples.length === 0) return "None yet.";
-  const head = `(${BASIS_TEXT[req.examplesBasis] ?? req.examplesBasis}; weight 2 marks a correction the person made)`;
-  return [head, ...req.examples.map((e) => `- ${e.action}${e.weight > 1 ? " (correction, weight 2)" : ""}, similarity ${e.similarity}: "${e.subject}" from ${e.sender}, ${e.decidedAt}${e.category ? `, sorted as ${e.category}` : ""}. ${e.summary}`.trim())].join("\n");
+  const basis = BASIS_TEXT[req.examplesBasis];
+  const head = `(${basis ? `${basis}; ` : ""}weight 2 marks a correction the person made)`;
+  return [head, ...req.examples.map(renderExample)].join("\n");
 }
 
 export interface Prepared {

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { classifyMail, TriageUnavailable } from "../src/classify-mail";
 import { asPulseApi, pulse, type ChatModel } from "../src/pulse";
-import { readTriageRequest, validateTriage, type TriageRequest } from "../src/triage";
+import { readTriageRequest, renderExamples, validateTriage, type TriageRequest } from "../src/triage";
 
 const ROOT = join(import.meta.dir, "..");
 const FLOW = join(ROOT, "flows", "desk-mail-triage.yaml");
@@ -139,7 +139,8 @@ describe("the request", () => {
   it("reads the Desk's stdin and refuses one without a mail", () => {
     expect(readTriageRequest(JSON.stringify(request())).mail.account).toBe("work");
     expect(readTriageRequest(JSON.stringify({ ...request(), corrections: undefined })).corrections).toEqual([]);
-    expect(readTriageRequest(JSON.stringify({ ...request(), examples: undefined, examplesBasis: undefined }))).toMatchObject({ examples: [], examplesBasis: "sender" });
+    expect(readTriageRequest(JSON.stringify({ ...request(), examples: undefined, examplesBasis: undefined }))).toMatchObject({ examples: [], examplesBasis: "" });
+    expect(renderExamples(readTriageRequest(JSON.stringify({ ...request(), examplesBasis: undefined })))).toStartWith("(weight 2 marks a correction the person made)");
     expect(() => readTriageRequest(JSON.stringify({ ...request(), examples: [{ subject: "s", summary: "", sender: "a@b", action: "archive", decidedAt: "x", similarity: "high", weight: 1 }] }))).toThrow("examples[0].similarity");
     expect(() => readTriageRequest(JSON.stringify({ meetings: [] }))).toThrow("no mail");
   });
