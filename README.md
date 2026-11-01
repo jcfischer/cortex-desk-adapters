@@ -125,19 +125,36 @@ mc:
 
 ## Mail actions
 
-A mail item on the Desk offers Delete (and "Seen, delete" on `fyi` and `bulk` mail). Cortex then runs the command set as `mc.desk.mail.actions.trash`, without a shell, and writes one JSON object to its stdin: `{ "action": "trash", "account": "<the item's account>", "messageId": "<the item's id>" }` (`DeskMailActionRequest` in [`src/contract.ts`](src/contract.ts)). Exit 0 means the message moved; on any other exit the last line of stderr is shown to the person.
+A mail item on the Desk offers Archive, Spam and Delete. All three are one move with a target, and none of them ever deletes or expunges a message: Archive moves it to the account's archive folder, Spam to its junk folder, Delete to its trash folder. Every move can be undone from the Desk.
 
-`desk-mail-trash [--mailbox INBOX]` is that command for the `email` CLI's accounts. It reads the account's IMAP settings from `~/.config/email/config.json` (a password as `keychain:<service>`, `env:<VAR>` or plain text, as the `email` CLI reads it), finds the message in INBOX by an IMAP header search, keeps only messages whose Message-ID is exactly the one asked for, and moves that one message with IMAP MOVE to the mailbox flagged `\Trash` (else one named Trash, Deleted Items or Deleted Messages). It never deletes or expunges: a server without the MOVE extension is refused, because the fallback (copy, flag deleted, expunge) could purge other messages. An account without `tls: true` must offer STARTTLS. It refuses, and moves nothing, when the message is not in INBOX ("The message is no longer in the work INBOX."), when more than one message has that Message-ID, or when the account has no Trash.
+Cortex runs the command set as `mc.desk.mail.actions.move`, without a shell, and writes one JSON object to its stdin (types in [`src/contract.ts`](src/contract.ts)):
+
+- `{ "action": "move", "account", "messageId", "target": "archive" | "junk" | "trash" }` (`DeskMailMoveRequest`) moves the one INBOX message with that Message-ID to the account's folder for the target.
+- `{ "action": "restore", "account", "messageId", "from": "archive" | "junk" | "trash" }` (`DeskMailRestoreRequest`) is Undo: it moves the one message with that Message-ID from the target's folder back to INBOX.
+
+`account` is the account the mail source put on the item, `messageId` the item's id without angle brackets. Exit 0 means the message moved; the command then prints a `DeskMailMoveResult`, `{ "id", "folder", "message" }`, whose `message` is the receipt the Desk shows and names the folder ("Moved to Archiv."). On any other exit the last line of stderr is shown to the person and the mail stays on the Desk.
+
+`desk-mail-move [--mailbox INBOX]` is that command for the `email` CLI's accounts. It reads the account's IMAP settings from `~/.config/email/config.json` (a password as `keychain:<service>`, `env:<VAR>` or plain text, as the `email` CLI reads it), and resolves each target per account from the server's folder list: the folder with the special-use flag (`\Archive`, `\Junk`, `\Trash`) first, else one with a usual name (Archive, Archives; Junk, Junk E-Mail, Junk Email, Spam; Trash, Deleted Items, Deleted Messages). It finds the message by an IMAP header search, keeps only messages whose Message-ID is exactly the one asked for, and moves that one message with IMAP MOVE. It refuses, and moves nothing:
+
+- when the account has no folder for the target ("The work account has no Archive mailbox, so nothing was moved."). It never falls back to another folder;
+- when the server lacks the MOVE extension, because the fallback (copy, flag deleted, expunge) could purge other messages;
+- when the Message-ID matches no message in the source folder ("The message is no longer in the work INBOX."), or more than one.
+
+An account without `tls: true` must offer STARTTLS.
 
 ```yaml
 mc:
   desk:
     mail:
       actions:
-        trash: [/path/to/cortex-desk-adapters/bin/desk-mail-trash.ts]
+        move: [/path/to/cortex-desk-adapters/bin/desk-mail-move.ts]
         draft: [/path/to/cortex-desk-adapters/bin/desk-mail-draft.ts, --email, /path/to/email]
         timeoutSeconds: 30
 ```
+
+### The legacy trash command
+
+Before the move contract, Delete ran `mc.desk.mail.actions.trash` with `{ "action": "trash", "account", "messageId" }` (`DeskMailActionRequest`). A stack without a `move` command still works that way: it offers Delete only, without Undo. `desk-mail-trash [--mailbox INBOX]` reads only that request and moves the message to the trash folder exactly as `desk-mail-move` does for `"target": "trash"`. `desk-mail-move` also accepts the legacy request, so a stack can point both keys at it while it moves over.
 
 ### Reply drafts
 
