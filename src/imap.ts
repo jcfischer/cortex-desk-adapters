@@ -1,6 +1,8 @@
 import { ImapFlow } from "imapflow";
 import type { ImapAccount } from "./imap-account";
 import { imapAccount } from "./imap-account";
+import type { DeskMailHeaders } from "./contract";
+import { HEADER_FIELDS, parseMailHeaders } from "./mail-headers";
 import type { Mailbox } from "./move";
 import { spawnRunner } from "./run";
 import { Refusal } from "./writers";
@@ -17,6 +19,10 @@ export function imapMailbox(client: ImapFlow): Mailbox {
     messageIdOf: async (uid) => {
       const [m] = await client.fetchAll([uid], { envelope: true }, { uid: true });
       return m?.envelope?.messageId;
+    },
+    unread: async (uid) => {
+      const [m] = await client.fetchAll([uid], { flags: true }, { uid: true });
+      return !(m?.flags?.has("\\Seen") ?? false);
     },
     folders: async () => (await client.list()).map((b) => ({ path: b.path, name: b.name, ...(b.specialUse ? { specialUse: b.specialUse } : {}) })),
     move: async (uid, target) => Boolean(await client.messageMove([uid], target, { uid: true })),
@@ -48,4 +54,27 @@ export async function withMailbox<T>(account: string, work: (box: Mailbox) => Pr
   } finally {
     await client.logout().catch(() => undefined);
   }
+}
+
+/** Reads the Desk's header fields for these INBOX UIDs, read-only (BODY.PEEK), so no message is marked read. */
+export async function readHeaders(account: string, uids: number[], mailbox = "INBOX"): Promise<Map<number, DeskMailHeaders>> {
+  const out = new Map<number, DeskMailHeaders>();
+  if (uids.length === 0) return out;
+  const client = connectImap(await imapAccount(account, spawnRunner));
+  client.on("error", () => undefined);
+  await client.connect();
+  try {
+    const lock = await client.getMailboxLock(mailbox, { readOnly: true });
+    try {
+      for (const m of await client.fetchAll(uids, { headers: [...HEADER_FIELDS] }, { uid: true })) {
+        const headers = m.headers ? parseMailHeaders(m.headers.toString("utf8")) : undefined;
+        if (headers) out.set(m.uid, headers);
+      }
+    } finally {
+      lock.release();
+    }
+  } finally {
+    await client.logout().catch(() => undefined);
+  }
+  return out;
 }

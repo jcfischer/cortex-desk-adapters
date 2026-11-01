@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { imapAccount, resolvePassword } from "../src/imap-account";
-import { moveMessage, pickFolder, readMoveRequest, readTrashRequest, restoreMessage, type Folder, type Mailbox } from "../src/move";
+import { locateMessage, moveMessage, pickFolder, readMoveRequest, readTrashRequest, restoreMessage, type Folder, type Mailbox } from "../src/move";
 import type { Runner } from "../src/run";
 import { Refusal } from "../src/writers";
 
@@ -18,7 +18,7 @@ const FOLDERS: Folder[] = [
   { path: "Trash", name: "Trash", specialUse: "\\Trash" },
 ];
 
-function fakeBox(boxes: Record<string, Record<number, string>>, folders: Folder[] = FOLDERS, canMove = true) {
+function fakeBox(boxes: Record<string, Record<number, string>>, folders: Folder[] = FOLDERS, canMove = true, read: number[] = []) {
   const moved: { from: string; uid: number; target: string }[] = [];
   const opened: string[] = [];
   let current = "";
@@ -32,6 +32,7 @@ function fakeBox(boxes: Record<string, Record<number, string>>, folders: Folder[
     },
     findUids: async (id) => Object.entries(boxes[current] ?? {}).filter(([, m]) => m.includes(id)).map(([uid]) => Number(uid)),
     messageIdOf: async (uid) => boxes[current]?.[uid],
+    unread: async (uid) => !read.includes(uid),
     folders: async () => folders,
     move: async (uid, target) => {
       moved.push({ from: current, uid, target });
@@ -58,6 +59,25 @@ it("undoes a move: the one message in the target's folder goes back to INBOX", a
   const gone = fakeBox({ Junk: {} });
   await expect(restoreMessage({ account: "work", messageId: ID, from: "junk" }, gone.box)).rejects.toThrow(new Refusal("The message is no longer in the work Junk."));
   expect(gone.moved).toEqual([]);
+});
+
+it("locates a mail read-only in INBOX, Archive, Junk or Trash, and reports gone instead of guessing", async () => {
+  const req = { account: "work", messageId: ID };
+  const inbox = fakeBox({ INBOX: { 5: `<${ID}>` } }, FOLDERS, true, [5]);
+  expect(await locateMessage(req, inbox.box)).toMatchObject({ id: ID, place: "inbox", folder: "INBOX", unread: false });
+  for (const [place, folder] of [["archive", "Archive"], ["junk", "Junk"], ["trash", "Trash"]] as const) {
+    const f = fakeBox({ INBOX: { 1: "<other@x>" }, [folder]: { 9: `<${ID}>` } });
+    expect(await locateMessage(req, f.box)).toMatchObject({ place, folder, unread: true });
+    expect(f.moved).toEqual([]);
+    expect(f.released()).toBe(f.opened.length);
+  }
+  const custom = fakeBox({ INBOX: {}, Archive: {}, Junk: {}, Trash: {}, Projects: { 2: `<${ID}>` } }, [...FOLDERS, { path: "Projects", name: "Projects" }]);
+  expect(await locateMessage(req, custom.box)).toEqual({ id: ID, place: "gone", message: "The message is not in the work inbox, Archive, Junk or Trash." });
+  expect(custom.opened).toEqual(["INBOX", "Archive", "Junk", "Trash"]);
+  const noArchive = fakeBox({ INBOX: {}, Trash: {} }, [{ path: "INBOX", name: "INBOX" }, { path: "Trash", name: "Trash" }]);
+  expect((await locateMessage(req, noArchive.box)).place).toBe("gone");
+  expect(noArchive.opened).toEqual(["INBOX", "Trash"]);
+  expect(readMoveRequest(JSON.stringify({ action: "locate", account: "work", messageId: `<${ID}>` }))).toEqual({ action: "locate", ...req });
 });
 
 it("refuses in one line when the message is gone, and moves nothing", async () => {

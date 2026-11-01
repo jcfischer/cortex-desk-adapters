@@ -20,10 +20,11 @@ Both wrap CLIs from a personal toolkit. They are examples of the contract as muc
 A source prints `{ "events"?: [...], "items"?: [...] }` on stdout and exits 0. The types are in [`src/contract.ts`](src/contract.ts).
 
 - An **event** has an `id`, an ISO 8601 `start`, a `title`, and optionally `end`, `allDay`, `location`, `online` and `url`.
-- A **mail item** has `kind: "mail"`, the Message-ID as `id`, `from`, `subject`, `receivedAt`, `unread`, and optionally `firstParagraph`, `url` and `account`.
+- A **mail item** has `kind: "mail"`, the Message-ID as `id`, `from`, `subject`, `receivedAt`, `unread`, and optionally `firstParagraph`, `url`, `account` and `headers`.
+- `headers` (`DeskMailHeaders`) holds what later Desk steps read from the message headers: `listId`, `listUnsubscribe`, `listUnsubscribePost`, `authResults` (`{ spf?, dkim?, dmarc? }`, the verdicts of the topmost Authentication-Results header), `replyTo` and `inReplyTo`. Every field is optional. Cortex treats the values as untrusted data and drops a malformed field without dropping the mail.
 - Links must be `http:`, `https:` or `message:` (Apple Mail). Cortex drops entries that do not match and reports how many it dropped.
 
-`desk-mail` reads message bodies without marking them read, and only for the newest unread messages (`--bodies`, default 15).
+`desk-mail` reads message bodies without marking them read, and only for the newest unread messages (`--bodies`, default 15). It reads the headers of every listed message over IMAP with `BODY.PEEK`, using the `email` CLI's account config; when that fails it lists the mail without `headers` and writes one line to stderr. `desk-imap` reads the same headers in its own fetch.
 
 ## macOS calendars under a daemon
 
@@ -131,6 +132,8 @@ Cortex runs the command set as `mc.desk.mail.actions.move`, without a shell, and
 
 - `{ "action": "move", "account", "messageId", "target": "archive" | "junk" | "trash" }` (`DeskMailMoveRequest`) moves the one INBOX message with that Message-ID to the account's folder for the target.
 - `{ "action": "restore", "account", "messageId", "from": "archive" | "junk" | "trash" }` (`DeskMailRestoreRequest`) is Undo: it moves the one message with that Message-ID from the target's folder back to INBOX.
+
+- `{ "action": "locate", "account", "messageId" }` (`DeskMailLocateRequest`) moves nothing. Cortex sends it for a listed unread mail that left INBOX or was read without a Desk action, to log where the person put it in their mail client. The command prints a `DeskMailLocateResult`, `{ "id", "place", "folder"?, "unread"?, "message" }`: `place` is `inbox`, `archive`, `junk`, `trash`, or `gone` when the message is in none of those folders. It never guesses another folder.
 
 `account` is the account the mail source put on the item, `messageId` the item's id without angle brackets. Exit 0 means the message moved; the command then prints a `DeskMailMoveResult`, `{ "id", "folder", "message" }`, whose `message` is the receipt the Desk shows and names the folder ("Moved to Archiv."). On any other exit the last line of stderr is shown to the person and the mail stays on the Desk.
 

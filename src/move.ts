@@ -1,4 +1,4 @@
-import type { DeskMailMoveRequest, DeskMailMoveResult, DeskMailRestoreRequest, DeskMoveTarget } from "./contract";
+import type { DeskMailLocateRequest, DeskMailLocateResult, DeskMailMoveRequest, DeskMailMoveResult, DeskMailRestoreRequest, DeskMoveTarget } from "./contract";
 import { isRecord } from "./guards";
 import { Refusal } from "./writers";
 
@@ -14,6 +14,7 @@ export interface Mailbox {
   open(path: string): Promise<() => void>;
   findUids(messageId: string): Promise<number[]>;
   messageIdOf(uid: number): Promise<string | undefined>;
+  unread(uid: number): Promise<boolean>;
   folders(): Promise<Folder[]>;
   move(uid: number, target: string): Promise<boolean>;
 }
@@ -73,12 +74,13 @@ export function readTrashRequest(text: string): DeskMailMoveRequest {
 }
 
 /**
- * Parses `{ action: "move", account, messageId, target }` or `{ action: "restore", account, messageId, from }`.
- * A legacy `{ action: "trash", … }` reads as a move to Trash.
+ * Parses `{ action: "move", account, messageId, target }`, `{ action: "restore", account, messageId, from }` or
+ * `{ action: "locate", account, messageId }`. A legacy `{ action: "trash", … }` reads as a move to Trash.
  */
-export function readMoveRequest(text: string): DeskMailMoveRequest | DeskMailRestoreRequest {
+export function readMoveRequest(text: string): DeskMailMoveRequest | DeskMailRestoreRequest | DeskMailLocateRequest {
   const body = parse(text);
   if (body.action === "trash") return trashFrom(body);
+  if (body.action === "locate") return { action: "locate", ...addressOf(body) };
   if (body.action === "move") {
     if (!isTarget(body.target)) throw new Refusal("The request names no valid target: archive, junk or trash.");
     return { action: "move", ...addressOf(body), target: body.target };
@@ -90,12 +92,17 @@ export function readMoveRequest(text: string): DeskMailMoveRequest | DeskMailRes
   throw new Refusal("This command only moves mail, or moves it back to the inbox.");
 }
 
-async function onlyMessage(box: Mailbox, messageId: string, where: string): Promise<number> {
+async function exactUids(box: Mailbox, messageId: string): Promise<number[]> {
   const exact: number[] = [];
   for (const uid of await box.findUids(messageId)) {
     const id = await box.messageIdOf(uid);
     if (id !== undefined && bareMessageId(id) === messageId) exact.push(uid);
   }
+  return exact;
+}
+
+async function onlyMessage(box: Mailbox, messageId: string, where: string): Promise<number> {
+  const exact = await exactUids(box, messageId);
   const [uid, ...others] = exact;
   if (uid === undefined) throw new Refusal(`The message is no longer in the ${where}.`);
   if (others.length > 0) throw new Refusal(`${exact.length} messages in the ${where} share this Message-ID, so none was moved.`);
@@ -135,4 +142,28 @@ export async function restoreMessage(req: Omit<DeskMailRestoreRequest, "action">
   const folder = await folderFor(box, req.account, req.from);
   await moveOne(box, req.account, folder, inbox, req.messageId);
   return { id: req.messageId, folder: inbox, message: `Moved back to ${inbox} from ${folder}.` };
+}
+
+const PLACE_LABEL: Record<DeskMailLocateResult["place"], string> = { inbox: "the inbox", archive: "Archive", junk: "Junk", trash: "Trash", gone: "" };
+
+/**
+ * Finds where the message with this Message-ID is now: INBOX first, then the account's Archive, Junk and Trash folders.
+ * Read-only. A message in none of them is `gone`; the command never guesses another folder.
+ */
+export async function locateMessage(req: Omit<DeskMailLocateRequest, "action">, box: Mailbox, inbox = "INBOX"): Promise<DeskMailLocateResult> {
+  const boxes = await box.folders();
+  const places: [DeskMailLocateResult["place"], string | undefined][] = [["inbox", inbox], ...MOVE_TARGETS.map((t): [DeskMoveTarget, string | undefined] => [t, pickFolder(boxes, t)])];
+  for (const [place, folder] of places) {
+    if (!folder) continue;
+    const release = await box.open(folder);
+    try {
+      const [uid] = await exactUids(box, req.messageId);
+      if (uid === undefined) continue;
+      const unread = await box.unread(uid);
+      return { id: req.messageId, place, folder, unread, message: `The message is in ${PLACE_LABEL[place]} (${folder}).` };
+    } finally {
+      release();
+    }
+  }
+  return { id: req.messageId, place: "gone", message: `The message is not in the ${req.account} inbox, Archive, Junk or Trash.` };
 }
