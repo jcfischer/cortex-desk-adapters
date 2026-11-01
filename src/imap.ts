@@ -171,29 +171,42 @@ export async function readLinks(account: string, uids: number[], warn: (line: st
   });
 }
 
-/** A PhishingReportBox over one account: originals are read with EXAMINE and BODY.PEEK; the draft is appended to Drafts. */
-export function withPhishingReportBox<T>(account: string, work: (box: PhishingReportBox, user: string) => Promise<T>): Promise<T> {
-  return imapAccount(account, spawnRunner).then((acct) => withImapClient(account, (client) => work({
-    folders: async () => (await client.list()).map((b) => ({ path: b.path, name: b.name, ...(b.specialUse ? { specialUse: b.specialUse } : {}) })),
-    source: async (folder, messageId) => {
-      const lock = await client.getMailboxLock(folder, { readOnly: true });
-      try {
-        const found = (await client.search({ header: { "message-id": messageId } }, { uid: true })) || [];
-        if (found.length === 0) return undefined;
-        const exact = (await client.fetchAll(found, { envelope: true, size: true }, { uid: true })).filter((m) => bareMessageId(m.envelope?.messageId ?? "") === messageId);
-        const [only, ...others] = exact;
-        if (!only) return undefined;
-        if (others.length > 0) throw new Refusal(`${exact.length} messages in the ${account} ${folder} share this Message-ID, so none was reported.`);
-        if ((only.size ?? 0) > MAX_ORIGINAL) throw new Refusal(TOO_LARGE);
-        const message = await client.fetchOne(String(only.uid), { source: true }, { uid: true });
-        return message && message.source ? new Uint8Array(message.source) : undefined;
-      } finally {
-        lock.release();
-      }
-    },
-    append: async (folder, content, flags) => {
+async function findOriginal(client: ImapFlow, account: string, folder: string, messageId: string): Promise<Uint8Array | undefined> {
+  const lock = await client.getMailboxLock(folder, { readOnly: true });
+  try {
+    const found = (await client.search({ header: { "message-id": messageId } }, { uid: true })) || [];
+    if (found.length === 0) return undefined;
+    const exact = (await client.fetchAll(found, { envelope: true, size: true }, { uid: true })).filter((m) => bareMessageId(m.envelope?.messageId ?? "") === messageId);
+    const [only, ...others] = exact;
+    if (!only) return undefined;
+    if (others.length > 0) throw new Refusal(`${exact.length} messages in the ${account} ${folder} share this Message-ID, so none was reported.`);
+    if ((only.size ?? 0) > MAX_ORIGINAL) throw new Refusal(TOO_LARGE);
+    const message = await client.fetchOne(String(only.uid), { source: true }, { uid: true });
+    return message && message.source ? new Uint8Array(message.source) : undefined;
+  } finally {
+    lock.release();
+  }
+}
+
+/**
+ * A PhishingReportBox over one connected client. The draft is appended while its folder is selected read-write: imapflow
+ * keeps only the flags the selected mailbox allows, and a mailbox left selected read-only allows none, so \Draft would be lost.
+ */
+export const phishingReportBox = (client: ImapFlow, account: string): PhishingReportBox => ({
+  folders: async () => (await client.list()).map((b) => ({ path: b.path, name: b.name, ...(b.specialUse ? { specialUse: b.specialUse } : {}) })),
+  source: (folder, messageId) => findOriginal(client, account, folder, messageId),
+  append: async (folder, content, flags) => {
+    const lock = await client.getMailboxLock(folder);
+    try {
       const done = await client.append(folder, Buffer.from(content), flags);
       if (!done) throw new Refusal(`The ${account} mail server did not save the report draft.`);
-    },
-  }, acct.user)));
+    } finally {
+      lock.release();
+    }
+  },
+});
+
+/** Runs `work` on a PhishingReportBox for one account: originals are read with EXAMINE and BODY.PEEK; the draft goes to Drafts. */
+export function withPhishingReportBox<T>(account: string, work: (box: PhishingReportBox, user: string) => Promise<T>): Promise<T> {
+  return imapAccount(account, spawnRunner).then((acct) => withImapClient(account, (client) => work(phishingReportBox(client, account), acct.user)));
 }
