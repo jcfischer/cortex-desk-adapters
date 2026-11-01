@@ -165,6 +165,33 @@ With `mc.desk.mail.actions.draft` set, a mail item offers "Draft a reply" (as it
 
 `desk-mail-draft [--email /path/to/email]` is that command for the `email` CLI: it runs `email draft create` with the account, recipient, subject and `In-Reply-To`, as plain text, with the reply on stdin. The `email` CLI appends the message to the account's Drafts mailbox over IMAP. It refuses a recipient that is not one plain address, a subject with a line break, and an empty reply.
 
+### DMARC reports
+
+DMARC aggregate reports (RFC 7489) can become one weekly line on the Desk instead of mail. A mail rule with the action "Keep for the digest" holds the report mails; Cortex then runs the command set as `mc.desk.mail.dmarc.command` once for each held mail whose subject starts with `Report Domain:`, without a shell, and writes `{ "action": "dmarc", "account", "messageId" }` (`DeskDmarcRequest`) to its stdin.
+
+On success the command exits 0 and prints a `DeskDmarcReport`: `{ "id", "org", "reportId", "begin", "end", "policyDomain", "domains": [...], "message" }`. Each entry of `domains` is one header-from domain with `messages`, `spf` and `dkim` (`{ pass, fail }`, the verdicts DMARC evaluated), `dmarcFail` (both failed), `disposition` (`{ none, quarantine, reject }`) and at most five `failing` sources (`{ ip, count, spfFail, dkimFail, dmarcFail }`), most failing first. A report the command will not read exits 3 with one sentence on stderr; Cortex records the reason and does not ask again. Any other exit is a failure Cortex retries on a later pass.
+
+`desk-mail-dmarc [--mailbox INBOX]` is that command for the `email` CLI's accounts. It opens the mailbox read-only and fetches parts with `BODY.PEEK`, so the mail stays unread. It reads the one attachment that is zip, gzip or XML and refuses (exit 3), reading nothing further:
+
+- a mail with no such attachment, or with more than one;
+- an attachment over 1 MiB, or one that unpacks to more than 8 MiB (a zip bomb stops at the cap), a zip with more than one file, an encrypted zip, or a zip whose file is not the size it declares;
+- XML with a DOCTYPE or entity declaration, XML that is not well-formed, a root other than `<feedback>`, or more than 20,000 records.
+
+Nothing in the report is executed or rendered: the command reads elements and text only.
+
+```yaml
+mc:
+  desk:
+    mail:
+      dmarc:
+        command: [/path/to/cortex-desk-adapters/bin/desk-mail-dmarc.ts]
+        domains: [example.org]
+        failOn: dmarc
+        after: archive
+```
+
+`domains` are the domains you own (subdomains count); reports about other domains are counted but never raise a card. `failOn: dmarc` (the default) raises a failure card when mail as your domain failed both SPF and DKIM, so failed DMARC; `spf-or-dkim` raises one when either failed, which also flags forwarded mail that DMARC passed. After reading, Cortex moves the report through the move contract to Archive, or to Trash with `after: trash`.
+
 ## Mail classifier
 
 Cortex can sort unread mail with a command set as `mc.desk.mail.classifier.command`. It runs the command without a shell once per unclassified unread mail, writes one JSON object to its stdin and kills it after `timeoutSeconds`:

@@ -182,3 +182,46 @@ export interface DeskMailDraftRequest {
   subject: string;
   body: string;
 }
+
+/** The Desk DMARC contract: Cortex writes this to the `mc.desk.mail.dmarc.command` command's stdin for a report mail a rule kept for the digest. */
+export interface DeskDmarcRequest {
+  action: "dmarc";
+  account: string;
+  /** The Message-ID without angle brackets. The command reads the one INBOX message with it, read-only. */
+  messageId: string;
+}
+
+/** A source IP whose mail failed SPF or DKIM (as DMARC evaluated them), with counts. */
+export interface DeskDmarcSource {
+  ip: string;
+  /** Messages from this source that failed SPF or DKIM. */
+  count: number;
+  spfFail: number;
+  dkimFail: number;
+  /** Messages that failed both, so failed DMARC. */
+  dmarcFail: number;
+}
+
+/** Counts for one header-from domain of a report. SPF and DKIM are the policy-evaluated (aligned) verdicts. */
+export interface DeskDmarcDomain {
+  domain: string;
+  messages: number;
+  spf: { pass: number; fail: number };
+  dkim: { pass: number; fail: number };
+  dmarcFail: number;
+  disposition: { none: number; quarantine: number; reject: number };
+  /** At most five sources, most failing messages first. */
+  failing: DeskDmarcSource[];
+}
+
+/** What the DMARC command prints on success. A refused report exits 3 with one sentence on stderr; any other failure exits 1. */
+export interface DeskDmarcReport extends DeskWriteResult {
+  org: string;
+  reportId: string;
+  /** ISO 8601 */
+  begin: string;
+  end: string;
+  policyDomain: string;
+  domains: DeskDmarcDomain[];
+  message: string;
+}
