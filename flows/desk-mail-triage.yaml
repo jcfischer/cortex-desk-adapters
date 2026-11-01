@@ -38,8 +38,11 @@ actions:
 
               Independently set commitment to request when asked to take on a new responsibility or task, invitation when invited to participate, none when no new commitment is asked, or unknown when evidence is insufficient. An expected reply or existing meeting update alone is not a new commitment.
 
+              Past decisions on mail like this one are listed with what the person did (archive, junk, trash, reply, plan, todo, keep), most similar first. A correction (weight 2) outweighs an ordinary decision.
+              Predict what the person will do with this mail as predictedAction. Follow the past decisions when they agree with each other and fit this mail; otherwise judge the mail on its own.
+
               Answer with one JSON object and nothing else, with only these fields:
-              {"category": "...", "commitment": "request" | "invitation" | "none" | "unknown", "meetingKey": "..." (only for a meeting, one of the listed keys), "reason": "one plain sentence, at most 200 characters", "summary": "what the mail says and wants, at most 600 characters", "suggestedAction": "reply" | "archive" | "link-meeting" | "task" | "none", "evidence": [{"kind": "mail" | "event" | "note", "ref": "message id, meeting key or note id", "title": "subject or title"}] (at most 5, only things a tool returned or a listed meeting)}
+              {"category": "...", "commitment": "request" | "invitation" | "none" | "unknown", "meetingKey": "..." (only for a meeting, one of the listed keys), "reason": "one plain sentence, at most 200 characters", "summary": "what the mail says and wants, at most 600 characters", "suggestedAction": "reply" | "archive" | "link-meeting" | "task" | "none", "predictedAction": "archive" | "junk" | "trash" | "reply" | "plan" | "todo" | "keep", "evidence": [{"kind": "mail" | "event" | "note", "ref": "message id, meeting key or note id", "title": "subject or title"}] (at most 5, only things a tool returned or a listed meeting)}
             prompt: |
               The mail (JSON; account {triage_item.account}):
               {triage_item.mail}
@@ -50,7 +53,10 @@ actions:
               Their VIP and unimportant senders:
               {triage_item.senders}
 
-              Corrections they made to how the Desk ranks mail (examples of what they want):
+              Corrections they made to the Desk's mail suggestions (examples of what they want):
               {triage_item.corrections}
+
+              What they did with past mail like this one:
+              {triage_item.examples}
             write_prompt: Research is over. Answer now with the one JSON object.
   - A_DESK_TRIAGE_CHECK

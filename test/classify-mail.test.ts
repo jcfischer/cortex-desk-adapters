@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { classifyMail, TriageUnavailable } from "../src/classify-mail";
 import { asPulseApi, pulse, type ChatModel } from "../src/pulse";
-import { readTriageRequest, validateTriage, type TriageRequest } from "../src/triage";
+import { readTriageRequest, renderExamples, validateTriage, type TriageRequest } from "../src/triage";
 
 const ROOT = join(import.meta.dir, "..");
 const FLOW = join(ROOT, "flows", "desk-mail-triage.yaml");
@@ -24,7 +24,12 @@ const request = (over: Partial<TriageRequest> = {}): TriageRequest => ({
   meetings: [{ key: KEY, title: "Switch-Kundenmeeting 2026", start: "2026-11-02T14:00:00Z" }],
   vips: [],
   unimportant: ["@grimm.example"],
-  corrections: [{ kind: "mail", source: "work-mail", mode: "less", label: "Mail you may want to read, from work-mail" }],
+  corrections: [{ kind: "mail", source: "ops@stats.example", mode: "keep", label: "“Weekly numbers” from ops@stats.example: the person would keep it" }],
+  examples: [
+    { subject: "Agenda for the board", summary: "Topics for the board meeting.", sender: "bob@example.org", action: "reply", decidedAt: "2026-10-20T08:00:00.000Z", similarity: 0.91, weight: 1 },
+    { category: "not bulk", subject: "Agenda draft", summary: "A first agenda.", sender: "eve@example.org", action: "keep", decidedAt: "2026-10-21T08:00:00.000Z", similarity: 0.88, weight: 2 },
+  ],
+  examplesBasis: "content",
   ...over,
 });
 
@@ -53,7 +58,7 @@ const run = async (req: TriageRequest, model: ChatModel, flow = FLOW) => {
 
 const VALID = JSON.stringify({ commitment: "invitation",
   category: "meeting", meetingKey: KEY, reason: "Ada sends the agenda for the Kundenmeeting.", summary: "Ada lists the topics for Monday's meeting.",
-  suggestedAction: "link-meeting", evidence: [{ kind: "event", ref: KEY, title: "Switch-Kundenmeeting 2026" }, { kind: "mail", ref: "<prev@example.org>", title: "Re: Kundenmeeting agenda" }],
+  suggestedAction: "link-meeting", predictedAction: "reply", evidence: [{ kind: "event", ref: KEY, title: "Switch-Kundenmeeting 2026" }, { kind: "mail", ref: "<prev@example.org>", title: "Re: Kundenmeeting agenda" }],
 });
 
 describe("the triage flow", () => {
@@ -78,12 +83,17 @@ describe("the triage flow", () => {
     expect(result.answer).toEqual(validateTriage(JSON.parse(VALID), new Set([KEY])));
     expect(result).toMatchObject({ rounds: 2, toolCalls: 2 });
     const first = JSON.stringify(model.requests[0]);
-    expect(first).toContain("Mail you may want to read, from work-mail");
+    expect(first).toContain("the person would keep it");
+    expect(first).toContain("found by content similarity");
+    expect(first).toContain("reply, similarity 0.91: \\\"Agenda for the board\\\" from bob@example.org");
+    expect(first).toContain("keep (correction, weight 2)");
+    expect(first).toContain("sorted as not bulk");
     expect(first).toContain(KEY);
     expect(first).toContain("account work");
     expect(first).toContain("A_NOTES_SEARCH");
     expect(first).toContain("Independently set commitment");
     expect(result.answer.commitment).toBe("invitation");
+    expect(result.answer.predictedAction).toBe("reply");
     expect(((await stat(transcripts)).mode & 0o777).toString(8)).toBe("700");
     expect((await readdir(transcripts)).some((f) => f.endsWith(".jsonl"))).toBe(true);
   });
@@ -95,6 +105,7 @@ describe("the triage flow", () => {
       { category: "fyi", reason: "x".repeat(201) },
       { category: "fyi", reason: "x", summary: "y".repeat(601) },
       { category: "fyi", reason: "x", suggestedAction: "forward" },
+      { category: "fyi", reason: "x", predictedAction: "forward" },
       { category: "fyi", reason: "x", mood: "happy" },
       { category: "fyi", reason: "x", evidence: Array.from({ length: 6 }, () => ({ kind: "mail", ref: "r", title: "t" })) },
       { category: "fyi", reason: "x", evidence: [{ kind: "mail", ref: "r", title: "t", url: "https://x" }] },
@@ -128,6 +139,9 @@ describe("the request", () => {
   it("reads the Desk's stdin and refuses one without a mail", () => {
     expect(readTriageRequest(JSON.stringify(request())).mail.account).toBe("work");
     expect(readTriageRequest(JSON.stringify({ ...request(), corrections: undefined })).corrections).toEqual([]);
+    expect(readTriageRequest(JSON.stringify({ ...request(), examples: undefined, examplesBasis: undefined }))).toMatchObject({ examples: [], examplesBasis: "" });
+    expect(renderExamples(readTriageRequest(JSON.stringify({ ...request(), examplesBasis: undefined })))).toStartWith("(weight 2 marks a correction the person made)");
+    expect(() => readTriageRequest(JSON.stringify({ ...request(), examples: [{ subject: "s", summary: "", sender: "a@b", action: "archive", decidedAt: "x", similarity: "high", weight: 1 }] }))).toThrow("examples[0].similarity");
     expect(() => readTriageRequest(JSON.stringify({ meetings: [] }))).toThrow("no mail");
   });
 });
