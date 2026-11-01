@@ -14,6 +14,8 @@ Cortex accounts for every configured source and uses the configured refresh inte
 
 The enum definitions are [Apple EKEventAvailability](https://developer.apple.com/documentation/eventkit/ekeventavailability) and [Microsoft LegacyFreeBusyStatus](https://learn.microsoft.com/en-us/exchange/client-developer/web-service-reference/legacyfreebusystatus). Unit cases qualify mappings; an installation also requires actual source readback and completion checks.
 
+The raw Exchange report retains the provider folder display name. The Desk adapter deliberately keeps its existing `Exchange` display label so legacy visibility and colour preferences still apply. The stable provider folder ID identifies the calendar; the display label does not establish source authority. EventKit calendar names pass through directly, and stable IDs preserve settings across renames.
+
 ## Install and roll back the separate native reader
 
 Build with `mac/build-availability.sh /path/to/new-output-directory`. The build refuses an existing `desk-calendar-availability-v1`. Record the source revision, output SHA256, and code signature before installation. The original `desk-calendar-mac` stays unchanged.
