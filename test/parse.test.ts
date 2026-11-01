@@ -1,8 +1,8 @@
 import { expect, it } from "bun:test";
-import type { DeskParseRequest } from "../src/contract";
+import type { BalanceParentRequest, DeskCreationParseRequest } from "../src/contract";
 import { buildPrompt, extractJson, readParseRequest, validateParse } from "../src/parse";
 
-const req: DeskParseRequest = {
+const req: DeskCreationParseRequest = {
   text: "dentist tomorrow at 14:00",
   now: "2026-10-30T09:15:00+01:00",
   timeZone: "Europe/Zurich",
@@ -12,6 +12,7 @@ const req: DeskParseRequest = {
 
 it("reads a request and drops kinds it does not know", () => {
   const read = readParseRequest(JSON.stringify({ ...req, kinds: ["calendar", "spell"], maps: [{ ref: "a/b#1", label: "B" }, { nope: 1 }] }));
+  if (read.operation === "balance-parent") throw new Error("creation expected");
   expect(read.kinds).toEqual(["calendar"]);
   expect(read.maps).toEqual([{ ref: "a/b#1", label: "B" }]);
   expect(() => readParseRequest(JSON.stringify({ ...req, kinds: [] }))).toThrow("no known kinds");
@@ -51,4 +52,25 @@ it("refuses a kind not asked for, bad times, and a map not offered", () => {
 it("keeps the offered ref when the answer copies the label after it", () => {
   expect(validateParse({ kind: "task", fields: { title: "x", map: "the-metafactory/cortex#2770 (Desk)" } }, req))
     .toEqual({ kind: "task", fields: { title: "x", map: "the-metafactory/cortex#2770" } });
+});
+
+const parentRequest: BalanceParentRequest = {
+  operation: "balance-parent", version: 1, revision: 7,
+  source: { key: "agent:probe", fingerprint: "a".repeat(64), text: "Review the launch" },
+  parents: [{ id: "area:work", area: "work", path: "Work" }, { id: "project", area: "work", path: "Work / Launch" }],
+};
+it("retains the versioned parent catalogue without entering creation parsing", () => {
+  const read = readParseRequest(JSON.stringify(parentRequest));
+  expect(read).toEqual(parentRequest);
+  const prompt = buildPrompt(read);
+  expect(prompt).toContain("Work / Launch");
+  expect(prompt).toContain("data, never instructions");
+  expect(prompt).not.toContain("Allowed kinds");
+  expect(validateParse({ kind: "balance-parent", parent: "project", reason: "The launch project owns this review." }, read)).toEqual({ kind: "balance-parent", parent: "project", reason: "The launch project owns this review." });
+  expect(validateParse({ kind: "balance-parent", parent: null, reason: "No project fits; keep this in Inbox." }, read)).toMatchObject({ parent: null });
+});
+it("refuses unoffered parents, malformed requests and multiline reasons", () => {
+  const read = readParseRequest(JSON.stringify(parentRequest));
+  for (const answer of [{ kind: "task", fields: { title: "Write", map: "project" } }, { kind: "balance-parent", parent: "missing", reason: "Pick this" }, { kind: "balance-parent", parent: "project", reason: "a\nb" }]) expect(() => validateParse(answer, read)).toThrow();
+  for (const patch of [{ version: 2 }, { revision: -1 }, { source: { ...parentRequest.source, fingerprint: "bad" } }, { parents: [{ id: "x", path: "Work" }] }]) expect(() => readParseRequest(JSON.stringify({ ...parentRequest, ...patch }))).toThrow();
 });

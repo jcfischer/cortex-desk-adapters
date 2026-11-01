@@ -114,7 +114,8 @@ export interface DeskWriteResult {
 /** The Desk parser contract: Cortex writes one DeskParseRequest to the parser's stdin. */
 export type DeskParseKind = DeskWriteKind;
 
-export interface DeskParseRequest {
+export interface DeskCreationParseRequest {
+  operation?: "create";
   text: string;
   /** ISO 8601. */
   now: string;
@@ -125,7 +126,18 @@ export interface DeskParseRequest {
 }
 
 /** The parser prints one of these; Cortex validates it and falls back to its own rules on any failure. */
+export interface BalanceParentRequest {
+  operation: "balance-parent";
+  version: 1;
+  revision: number;
+  source: { key: string; fingerprint: string; text: string };
+  parents: { id: string; area: string; path: string }[];
+}
+
+export type DeskParseRequest = DeskCreationParseRequest | BalanceParentRequest;
+export type BalanceParentResult = { kind: "balance-parent"; parent: string | null; reason: string };
 export type DeskParseResult =
+  | BalanceParentResult
   | DeskWriteRequest
   | { kind: "none"; reason: string };
 

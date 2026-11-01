@@ -94,6 +94,20 @@ Notes and reminders need no writer: without one, Cortex keeps them on the Desk (
 
 Cortex may run a parser before it builds the card. Its stdin gets `{ "text", "now" (ISO 8601), "timeZone" (IANA), "kinds", "maps": [{ "ref", "label" }] }`; `kinds` is a subset of `reminder`, `note`, `task`, `goal` and `calendar`. It prints one object: `{ "kind", "fields" }` with the fields above, or `{ "kind": "none", "reason" }`. Cortex validates the answer and falls back to its own rules parser on any failure, so a parser may fail loudly.
 
+### Read-only Balance parent proposals
+
+The same configured `desk-parse` accepts a separate versioned operation:
+
+```json
+{"operation":"balance-parent","version":1,"revision":7,"source":{"key":"reminder:1","fingerprint":"<64 lowercase hexadecimal characters>","text":"Review the launch"},"parents":[{"id":"area:work","area":"work","path":"Work"}],"routing":{"permitted":["pi"]}}
+```
+
+It returns `{ "kind": "balance-parent", "parent": "area:work", "reason": "This area owns the review.", "routing": { ... } }`. `parent: null` explicitly selects Inbox when no offered parent fits. The reason is one line of at most 200 characters. Parent IDs must come from this request's catalogue. Source text and labels are data and cannot grant instructions or authority.
+
+With `--routing-config`, both operations use the same permitted-provider intersection, Ranger selection, capability checks, deadline, and tools-disabled execution. Failure retains the existing `{ "kind": "none", "reason", "routing": { "kind": "unavailable", ... } }` envelope. Cortex checks the routing evidence, current source fingerprint, revision, and parent again before the person confirms filing. A proposal never invokes a writer. `balance-parent` is not a writer kind.
+
+Deploy this adapter update before the corresponding Cortex Catch-up update. Existing creation requests and writer contracts are unchanged. An older or custom parser that does not support this operation produces a visible Inbox fallback in Cortex. The configured parser is a command path, so update that checkout to the reviewed adapter release or merge revision; no dependency pin in Cortex changes. This repository currently has no CI, so its PR records `bun test` and `bunx tsc --noEmit`. Updating TypeScript files does not require rebuilding either signed macOS binary.
+
 ### The commands
 
 - **`desk-calendar-mac --create`** reads the request after its relaunch, so a refused request never touches the calendar. It refuses a request without a request id. It saves to the default calendar for new events, or to `--calendar <name>` (an unknown or read-only calendar is refused), with span `.thisEvent`, and puts `desk:request <requestId>` as the last line of the event's notes. Before saving, it looks in the target calendar from the day before the start to a day after the end for an event whose notes hold that line; if it finds one, it saves nothing and reports that event as already there. The `id` is the event's `eventIdentifier`. An event without `end` lasts an hour; an all-day event without `end` lasts one day. It uses the same calendar grant as reading (full access).
