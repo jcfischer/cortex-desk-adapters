@@ -199,7 +199,32 @@ interface Tally extends DeskDmarcDomain {
 
 const emptyTally = (domain: string): Tally => ({ domain, messages: 0, spf: { pass: 0, fail: 0 }, dkim: { pass: 0, fail: 0 }, dmarcFail: 0, disposition: { none: 0, quarantine: 0, reject: 0 }, failing: [], bySource: new Map() });
 
-function tally(t: Tally, source: string, spf: Verdict, dkim: Verdict, disposition: (typeof DISPOSITIONS)[number], count: number): void {
+interface RecordRow {
+  domain: string;
+  source: string;
+  spf: Verdict;
+  dkim: Verdict;
+  disposition: (typeof DISPOSITIONS)[number];
+  count: number;
+}
+
+function recordRow(record: XmlNode, policyDomain: string): RecordRow {
+  const row = child(record, "row");
+  const rawCount = textOf(row, "count");
+  const count = Number(rawCount);
+  if (!/^\d{1,15}$/.test(rawCount) || !Number.isSafeInteger(count)) throw new ReportRefusal("The report has a record without a valid count.");
+  const ip = textOf(row, "source_ip").toLowerCase();
+  return {
+    domain: cleanDomain(textOf(record, "identifiers", "header_from")) ?? policyDomain,
+    source: IP.test(ip) ? ip : "unknown",
+    spf: verdict(textOf(row, "policy_evaluated", "spf")),
+    dkim: verdict(textOf(row, "policy_evaluated", "dkim")),
+    disposition: DISPOSITIONS.find((d) => d === textOf(row, "policy_evaluated", "disposition").toLowerCase()) ?? "none",
+    count,
+  };
+}
+
+function tally(t: Tally, { source, spf, dkim, disposition, count }: RecordRow): void {
   const dmarcFailed = spf === "fail" && dkim === "fail";
   t.messages += count;
   t.spf[spf] += count;
@@ -225,19 +250,10 @@ export function reportFrom(root: XmlNode, id: string): DeskDmarcReport {
   if (records.length > MAX_RECORDS) throw new ReportRefusal(`The report has more than ${MAX_RECORDS} records, so it was not read.`);
   const tallies = new Map<string, Tally>();
   for (const record of records) {
-    const row = child(record, "row");
-    const rawCount = textOf(row, "count");
-    const count = Number(rawCount);
-    if (!/^\d{1,15}$/.test(rawCount) || !Number.isSafeInteger(count)) throw new ReportRefusal("The report has a record without a valid count.");
-    const domain = cleanDomain(textOf(record, "identifiers", "header_from")) ?? policyDomain;
-    const ip = textOf(row, "source_ip").toLowerCase();
-    const source = IP.test(ip) ? ip : "unknown";
-    const spf = verdict(textOf(row, "policy_evaluated", "spf"));
-    const dkim = verdict(textOf(row, "policy_evaluated", "dkim"));
-    const disposition = DISPOSITIONS.find((d) => d === textOf(row, "policy_evaluated", "disposition").toLowerCase()) ?? "none";
-    const t = tallies.get(domain) ?? emptyTally(domain);
-    tally(t, source, spf, dkim, disposition, count);
-    tallies.set(domain, t);
+    const r = recordRow(record, policyDomain);
+    const t = tallies.get(r.domain) ?? emptyTally(r.domain);
+    tally(t, r);
+    tallies.set(r.domain, t);
   }
   const domains = [...tallies.values()].map(({ bySource, ...d }): DeskDmarcDomain => ({
     ...d,
