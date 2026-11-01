@@ -3,7 +3,8 @@ import type { ImapAccount } from "./imap-account";
 import { imapAccount } from "./imap-account";
 import type { DeskMailHeaders } from "./contract";
 import { HEADER_FIELDS, headersOf } from "./mail-headers";
-import type { Mailbox } from "./move";
+import { ReportRefusal, type Attachment, type ReportMailbox } from "./dmarc";
+import { bareMessageId, type Mailbox } from "./move";
 import { spawnRunner } from "./run";
 import { Refusal } from "./writers";
 
@@ -73,5 +74,65 @@ export async function readHeaders(account: string, uids: number[], trustedAuthse
       lock.release();
     }
     return out;
+  });
+}
+
+interface Part {
+  part?: string;
+  type?: string;
+  size?: number;
+  parameters?: Record<string, string>;
+  dispositionParameters?: Record<string, string>;
+  childNodes?: Part[];
+}
+
+const leaves = (n: Part | undefined): Part[] => (!n ? [] : n.childNodes?.length ? n.childNodes.flatMap(leaves) : [n]);
+
+/** The attachments of one message's body structure: media type, file name and encoded size. A single-part message is part 1. */
+export const attachmentsOf = (structure: Part | undefined): (Attachment & { part: string })[] =>
+  leaves(structure).map((p) => ({
+    part: p.part ?? "1",
+    type: (p.type ?? "").toLowerCase(),
+    filename: p.dispositionParameters?.filename ?? p.parameters?.name ?? "",
+    size: p.size ?? 0,
+  }));
+
+/**
+ * A read-only ReportMailbox over one account's INBOX: the mailbox is opened with EXAMINE and parts are fetched with
+ * BODY.PEEK, so the mail is never marked read. It refuses a Message-ID that matches no message or more than one.
+ */
+export async function withReportMailbox<T>(account: string, work: (box: ReportMailbox) => Promise<T>, mailbox = "INBOX"): Promise<T> {
+  return withImapClient(account, async (client) => {
+    const lock = await client.getMailboxLock(mailbox, { readOnly: true });
+    try {
+      const uids = new Map<string, Promise<number>>();
+      const findUid = async (messageId: string): Promise<number> => {
+        const found = (await client.search({ header: { "message-id": messageId } }, { uid: true })) || [];
+        const exact = found.length ? (await client.fetchAll(found, { envelope: true }, { uid: true })).filter((m) => bareMessageId(m.envelope?.messageId ?? "") === messageId) : [];
+        const [only, ...others] = exact;
+        if (!only) throw new Refusal(`The message is no longer in the ${account} ${mailbox}.`);
+        if (others.length > 0) throw new ReportRefusal(`${exact.length} messages in the ${account} ${mailbox} share this Message-ID, so none was read.`);
+        return only.uid;
+      };
+      const uidOf = (messageId: string): Promise<number> => {
+        const known = uids.get(messageId) ?? findUid(messageId);
+        uids.set(messageId, known);
+        return known;
+      };
+      return await work({
+        attachments: async (messageId) => {
+          const [m] = await client.fetchAll([await uidOf(messageId)], { bodyStructure: true }, { uid: true });
+          return attachmentsOf(m?.bodyStructure as Part | undefined);
+        },
+        download: async (messageId, part, maxBytes) => {
+          const { content } = await client.download(String(await uidOf(messageId)), part, { uid: true, maxBytes });
+          const chunks: Buffer[] = [];
+          for await (const chunk of content) chunks.push(chunk as Buffer);
+          return new Uint8Array(Buffer.concat(chunks));
+        },
+      });
+    } finally {
+      lock.release();
+    }
   });
 }
