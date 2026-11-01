@@ -1,7 +1,9 @@
 import { ImapFlow } from "imapflow";
 import type { ImapAccount } from "./imap-account";
 import { imapAccount } from "./imap-account";
-import type { DeskMailHeaders } from "./contract";
+import type { DeskMailHeaders, DeskMailLink } from "./contract";
+import { linksOf } from "./links";
+import type { ReportDraftBox } from "./report";
 import { HEADER_FIELDS, headersOf } from "./mail-headers";
 import { ReportRefusal, type Attachment, type ReportMailbox } from "./dmarc";
 import { bareMessageId, type Mailbox } from "./move";
@@ -135,4 +137,58 @@ export async function withReportMailbox<T>(account: string, work: (box: ReportMa
       lock.release();
     }
   });
+}
+
+const htmlPart = (structure: Part | undefined): string | undefined => {
+  const html = leaves(structure).find((p) => (p.type ?? "").toLowerCase() === "text/html" && !p.dispositionParameters?.filename);
+  return html ? html.part ?? "1" : undefined;
+};
+
+/** The links of each message's HTML body, for these INBOX UIDs, read-only (EXAMINE, BODY.PEEK), so no message is marked read. */
+export async function readLinks(account: string, uids: number[], mailbox = "INBOX", maxBytes = 256 * 1024): Promise<Map<number, DeskMailLink[]>> {
+  const out = new Map<number, DeskMailLink[]>();
+  if (uids.length === 0) return out;
+  return withImapClient(account, async (client) => {
+    const lock = await client.getMailboxLock(mailbox, { readOnly: true });
+    try {
+      for (const m of await client.fetchAll(uids, { bodyStructure: true }, { uid: true })) {
+        const part = htmlPart(m.bodyStructure as Part | undefined);
+        if (!part) continue;
+        const { content } = await client.download(String(m.uid), part, { uid: true, maxBytes });
+        const chunks: Buffer[] = [];
+        for await (const chunk of content) chunks.push(chunk as Buffer);
+        const links = linksOf(Buffer.concat(chunks).toString("utf8"));
+        if (links.length > 0) out.set(m.uid, links);
+      }
+    } finally {
+      lock.release();
+    }
+    return out;
+  });
+}
+
+/** A ReportDraftBox over one account: originals are read with EXAMINE and BODY.PEEK; the draft is appended to Drafts. */
+export function withReportDraftBox<T>(account: string, work: (box: ReportDraftBox, user: string) => Promise<T>): Promise<T> {
+  return imapAccount(account, spawnRunner).then((acct) => withImapClient(account, (client) => work({
+    folders: async () => (await client.list()).map((b) => ({ path: b.path, name: b.name, ...(b.specialUse ? { specialUse: b.specialUse } : {}) })),
+    source: async (folder, messageId) => {
+      const lock = await client.getMailboxLock(folder, { readOnly: true });
+      try {
+        const found = (await client.search({ header: { "message-id": messageId } }, { uid: true })) || [];
+        if (found.length === 0) return undefined;
+        const exact = (await client.fetchAll(found, { envelope: true }, { uid: true })).filter((m) => bareMessageId(m.envelope?.messageId ?? "") === messageId);
+        const [only, ...others] = exact;
+        if (!only) return undefined;
+        if (others.length > 0) throw new Refusal(`${exact.length} messages in the ${account} ${folder} share this Message-ID, so none was reported.`);
+        const message = await client.fetchOne(String(only.uid), { source: true }, { uid: true });
+        return message && message.source ? new Uint8Array(message.source) : undefined;
+      } finally {
+        lock.release();
+      }
+    },
+    append: async (folder, content, flags) => {
+      const done = await client.append(folder, Buffer.from(content), flags);
+      if (!done) throw new Refusal(`The ${account} mail server did not save the report draft.`);
+    },
+  }, acct.user)));
 }

@@ -20,11 +20,12 @@ Both wrap CLIs from a personal toolkit. They are examples of the contract as muc
 A source prints `{ "events"?: [...], "items"?: [...] }` on stdout and exits 0. The types are in [`src/contract.ts`](src/contract.ts).
 
 - An **event** has an `id`, an ISO 8601 `start`, a `title`, and optionally `end`, `allDay`, `location`, `online` and `url`.
-- A **mail item** has `kind: "mail"`, the Message-ID as `id`, `from`, `subject`, `receivedAt`, `unread`, and optionally `firstParagraph`, `url`, `account` and `headers`.
-- `headers` (`DeskMailHeaders`) holds what later Desk steps read from the message headers: `listId`, `listUnsubscribe`, `listUnsubscribePost`, `authResults` (`{ spf?, dkim?, dmarc? }`, the verdicts of the topmost Authentication-Results header), `replyTo` and `inReplyTo`. Every field is optional. Cortex treats the values as untrusted data and drops a malformed field without dropping the mail.
+- A **mail item** has `kind: "mail"`, the Message-ID as `id`, `from`, `subject`, `receivedAt`, `unread`, and optionally `firstParagraph`, `url`, `account`, `headers` and `links`.
+- `headers` (`DeskMailHeaders`) holds what later Desk steps read from the message headers: `listId`, `listUnsubscribe`, `listUnsubscribePost`, `authResults` (`{ spf?, dkim?, dmarc?, dkimDomains? }`, the verdicts of the topmost Authentication-Results header and the signing domains of its passing DKIM signatures), `replyTo` and `inReplyTo`. Every field is optional. Cortex treats the values as untrusted data and drops a malformed field without dropping the mail.
+- `links` (`DeskMailLink[]`, at most 20) are the links of the HTML body whose whole visible text names a host, as `{ text, href }`, for the Desk's phishing check.
 - Links must be `http:`, `https:` or `message:` (Apple Mail). Cortex drops entries that do not match and reports how many it dropped.
 
-`desk-mail` reads message bodies without marking them read, and only for the newest unread messages (`--bodies`, default 15). It reads the headers of every listed message over IMAP with `BODY.PEEK`, using the `email` CLI's account config; when that fails it lists the mail without `headers` and writes one line to stderr. `desk-imap` reads the same headers in its own fetch. The verdicts come from the topmost Authentication-Results header, ignoring comments such as an ARC chain's. A sender can forge that header when the receiving server adds none, so pass `--authserv <id>` (repeatable) to either command to read only headers whose authserv-id, the first word of the header, is one your own mail server writes; with `--authserv` set and no match, `authResults` is left out.
+`desk-mail` reads message bodies without marking them read, and only for the newest unread messages (`--bodies`, default 15). It reads the headers of every listed message over IMAP with `BODY.PEEK`, using the `email` CLI's account config; when that fails it lists the mail without `headers` and writes one line to stderr. `desk-imap` reads the same headers in its own fetch. The verdicts come from the topmost Authentication-Results header, ignoring comments such as an ARC chain's. A sender can forge that header when the receiving server adds none, so pass `--authserv <id>` (repeatable) to either command to read only headers whose authserv-id, the first word of the header, is one your own mail server writes; with `--authserv` set and no match, `authResults` is left out. For the same unread messages it reads, `desk-mail` also reads the HTML body over IMAP (read-only, at most 256 KiB) for `links`; when that fails the mail is listed without them.
 
 ## macOS calendars under a daemon
 
@@ -164,6 +165,21 @@ Before the move contract, Delete ran `mc.desk.mail.actions.trash` with `{ "actio
 With `mc.desk.mail.actions.draft` set, a mail item offers "Draft a reply" (as its first action when the classifier suggests a reply). The person writes the reply in the Desk's detail panel and confirms; Cortex runs the command without a shell and writes `{ "action": "draft", "account", "messageId", "to", "subject", "body" }` to its stdin (`DeskMailDraftRequest`). `to` is the original sender, `subject` the original subject with `Re: `. Exit 0 means the draft is saved; otherwise the last line of stderr is shown and the mail stays on the Desk. A draft command never sends mail.
 
 `desk-mail-draft [--email /path/to/email]` is that command for the `email` CLI: it runs `email draft create` with the account, recipient, subject and `In-Reply-To`, as plain text, with the reply on stdin. The `email` CLI appends the message to the account's Drafts mailbox over IMAP. It refuses a recipient that is not one plain address, a subject with a line break, and an empty reply.
+
+### Reporting phishing
+
+With `mc.desk.mail.report` set, a mail the Desk flags as suspicious offers "Report". Cortex runs `mc.desk.mail.report.command` without a shell and writes `{ "action": "report", "account", "messageId", "to" }` (`DeskMailReportRequest`) to its stdin, with `to` from `mc.desk.mail.report.to`. Without the block, Report is hidden; Spam works either way.
+
+`desk-mail-report [--mailbox INBOX]` is that command for the `email` CLI's accounts. It reads the original from INBOX, else from the Junk folder, read-only, and appends a draft to the account's Drafts mailbox (special-use `\Drafts`, else a usual name): to `to`, subject `Phishing report: <original subject>`, a short text part, and the original unchanged as a `message/rfc822` attachment. The person sends the draft from their mail client; the command only saves it, and never moves or deletes mail. It refuses a request without `to`, a Message-ID that matches more than one message, and a message over 25 MB.
+
+```yaml
+mc:
+  desk:
+    mail:
+      report:
+        command: [/path/to/cortex-desk-adapters/bin/desk-mail-report.ts]
+        to: reports@example.org
+```
 
 ### DMARC reports
 

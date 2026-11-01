@@ -18,7 +18,8 @@
     "desk-ics": "bin/desk-ics.ts",
     "desk-imap": "bin/desk-imap.ts",
     "desk-ntfy": "bin/desk-ntfy.ts",
-    "desk-mail-dmarc": "bin/desk-mail-dmarc.ts"
+    "desk-mail-dmarc": "bin/desk-mail-dmarc.ts",
+    "desk-mail-report": "bin/desk-mail-report.ts"
   },
   "scripts": {
     "test": "bun test",
