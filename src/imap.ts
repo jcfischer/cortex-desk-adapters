@@ -1,9 +1,12 @@
 import { ImapFlow } from "imapflow";
 import type { ImapAccount } from "./imap-account";
 import { imapAccount } from "./imap-account";
-import type { DeskMailHeaders } from "./contract";
+import type { DeskMailHeaders, DeskMailLink } from "./contract";
+import { linksOf } from "./links";
+import { MAX_ORIGINAL, TOO_LARGE, type PhishingReportBox } from "./report";
 import { HEADER_FIELDS, headersOf } from "./mail-headers";
-import type { Mailbox } from "./move";
+import { ReportRefusal, type Attachment, type ReportMailbox } from "./dmarc";
+import { bareMessageId, type Mailbox } from "./move";
 import { spawnRunner } from "./run";
 import { Refusal } from "./writers";
 
@@ -74,4 +77,136 @@ export async function readHeaders(account: string, uids: number[], trustedAuthse
     }
     return out;
   });
+}
+
+interface Part {
+  part?: string;
+  type?: string;
+  size?: number;
+  parameters?: Record<string, string>;
+  dispositionParameters?: Record<string, string>;
+  childNodes?: Part[];
+}
+
+const leaves = (n: Part | undefined): Part[] => (!n ? [] : n.childNodes?.length ? n.childNodes.flatMap(leaves) : [n]);
+
+/** The attachments of one message's body structure: media type, file name and encoded size. A single-part message is part 1. */
+export const attachmentsOf = (structure: Part | undefined): (Attachment & { part: string })[] =>
+  leaves(structure).map((p) => ({
+    part: p.part ?? "1",
+    type: (p.type ?? "").toLowerCase(),
+    filename: p.dispositionParameters?.filename ?? p.parameters?.name ?? "",
+    size: p.size ?? 0,
+  }));
+
+/**
+ * A read-only ReportMailbox over one account's INBOX: the mailbox is opened with EXAMINE and parts are fetched with
+ * BODY.PEEK, so the mail is never marked read. It refuses a Message-ID that matches no message or more than one.
+ */
+export async function withReportMailbox<T>(account: string, work: (box: ReportMailbox) => Promise<T>, mailbox = "INBOX"): Promise<T> {
+  return withImapClient(account, async (client) => {
+    const lock = await client.getMailboxLock(mailbox, { readOnly: true });
+    try {
+      const uids = new Map<string, Promise<number>>();
+      const findUid = async (messageId: string): Promise<number> => {
+        const found = (await client.search({ header: { "message-id": messageId } }, { uid: true })) || [];
+        const exact = found.length ? (await client.fetchAll(found, { envelope: true }, { uid: true })).filter((m) => bareMessageId(m.envelope?.messageId ?? "") === messageId) : [];
+        const [only, ...others] = exact;
+        if (!only) throw new Refusal(`The message is no longer in the ${account} ${mailbox}.`);
+        if (others.length > 0) throw new ReportRefusal(`${exact.length} messages in the ${account} ${mailbox} share this Message-ID, so none was read.`);
+        return only.uid;
+      };
+      const uidOf = (messageId: string): Promise<number> => {
+        const known = uids.get(messageId) ?? findUid(messageId);
+        uids.set(messageId, known);
+        return known;
+      };
+      return await work({
+        attachments: async (messageId) => {
+          const [m] = await client.fetchAll([await uidOf(messageId)], { bodyStructure: true }, { uid: true });
+          return attachmentsOf(m?.bodyStructure as Part | undefined);
+        },
+        download: async (messageId, part, maxBytes) => {
+          const { content } = await client.download(String(await uidOf(messageId)), part, { uid: true, maxBytes });
+          const chunks: Buffer[] = [];
+          for await (const chunk of content) chunks.push(chunk as Buffer);
+          return new Uint8Array(Buffer.concat(chunks));
+        },
+      });
+    } finally {
+      lock.release();
+    }
+  });
+}
+
+const htmlPart = (structure: Part | undefined): string | undefined => {
+  const html = leaves(structure).find((p) => (p.type ?? "").toLowerCase() === "text/html" && !p.dispositionParameters?.filename);
+  return html ? html.part ?? "1" : undefined;
+};
+
+/** The links of each message's HTML body, for these INBOX UIDs, read-only (EXAMINE, BODY.PEEK), so no message is marked read. */
+export async function readLinks(account: string, uids: number[], warn: (line: string) => void = () => undefined, mailbox = "INBOX", maxBytes = 256 * 1024): Promise<Map<number, DeskMailLink[]>> {
+  const out = new Map<number, DeskMailLink[]>();
+  if (uids.length === 0) return out;
+  return withImapClient(account, async (client) => {
+    const lock = await client.getMailboxLock(mailbox, { readOnly: true });
+    try {
+      for (const m of await client.fetchAll(uids, { bodyStructure: true }, { uid: true })) {
+        const part = htmlPart(m.bodyStructure as Part | undefined);
+        if (!part) continue;
+        try {
+          const { content } = await client.download(String(m.uid), part, { uid: true, maxBytes });
+          const chunks: Buffer[] = [];
+          for await (const chunk of content) chunks.push(chunk as Buffer);
+          const links = linksOf(Buffer.concat(chunks).toString("utf8"));
+          if (links.length > 0) out.set(m.uid, links);
+        } catch (err) {
+          warn(`the links of message ${m.uid} were not read: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+    } finally {
+      lock.release();
+    }
+    return out;
+  });
+}
+
+async function findOriginal(client: ImapFlow, account: string, folder: string, messageId: string): Promise<Uint8Array | undefined> {
+  const lock = await client.getMailboxLock(folder, { readOnly: true });
+  try {
+    const found = (await client.search({ header: { "message-id": messageId } }, { uid: true })) || [];
+    if (found.length === 0) return undefined;
+    const exact = (await client.fetchAll(found, { envelope: true, size: true }, { uid: true })).filter((m) => bareMessageId(m.envelope?.messageId ?? "") === messageId);
+    const [only, ...others] = exact;
+    if (!only) return undefined;
+    if (others.length > 0) throw new Refusal(`${exact.length} messages in the ${account} ${folder} share this Message-ID, so none was reported.`);
+    if ((only.size ?? 0) > MAX_ORIGINAL) throw new Refusal(TOO_LARGE);
+    const message = await client.fetchOne(String(only.uid), { source: true }, { uid: true });
+    return message && message.source ? new Uint8Array(message.source) : undefined;
+  } finally {
+    lock.release();
+  }
+}
+
+/**
+ * A PhishingReportBox over one connected client. The draft is appended while its folder is selected read-write: imapflow
+ * keeps only the flags the selected mailbox allows, and a mailbox left selected read-only allows none, so \Draft would be lost.
+ */
+export const phishingReportBox = (client: ImapFlow, account: string): PhishingReportBox => ({
+  folders: async () => (await client.list()).map((b) => ({ path: b.path, name: b.name, ...(b.specialUse ? { specialUse: b.specialUse } : {}) })),
+  source: (folder, messageId) => findOriginal(client, account, folder, messageId),
+  append: async (folder, content, flags) => {
+    const lock = await client.getMailboxLock(folder);
+    try {
+      const done = await client.append(folder, Buffer.from(content), flags);
+      if (!done) throw new Refusal(`The ${account} mail server did not save the report draft.`);
+    } finally {
+      lock.release();
+    }
+  },
+});
+
+/** Runs `work` on a PhishingReportBox for one account: originals are read with EXAMINE and BODY.PEEK; the draft goes to Drafts. */
+export function withPhishingReportBox<T>(account: string, work: (box: PhishingReportBox, user: string) => Promise<T>): Promise<T> {
+  return imapAccount(account, spawnRunner).then((acct) => withImapClient(account, (client) => work(phishingReportBox(client, account), acct.user)));
 }

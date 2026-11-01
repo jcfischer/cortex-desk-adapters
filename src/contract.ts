@@ -34,6 +34,14 @@ export interface DeskSourceMail {
   account?: string;
   /** Headers later Desk steps read. Cortex treats every value as untrusted data. */
   headers?: DeskMailHeaders;
+  /** Links in the HTML body whose text names a host (at most 20), for the Desk's phishing check. Untrusted data. */
+  links?: DeskMailLink[];
+}
+
+/** One link: the text a reader sees and the http(s) address it opens. */
+export interface DeskMailLink {
+  text: string;
+  href: string;
 }
 
 /** An SPF, DKIM or DMARC verdict from the topmost Authentication-Results header. */
@@ -43,7 +51,8 @@ export interface DeskMailHeaders {
   listId?: string;
   listUnsubscribe?: string;
   listUnsubscribePost?: string;
-  authResults?: { spf?: DeskAuthVerdict; dkim?: DeskAuthVerdict; dmarc?: DeskAuthVerdict };
+  /** `dkimDomains`: the signing domains of the passing DKIM signatures in the same header, possibly none; `spfDomain`: the domain SPF checked (smtp.mailfrom). */
+  authResults?: { spf?: DeskAuthVerdict; dkim?: DeskAuthVerdict; dmarc?: DeskAuthVerdict; dkimDomains?: string[]; spfDomain?: string };
   replyTo?: string;
   inReplyTo?: string;
 }
@@ -193,4 +202,62 @@ export interface DeskMailDraftRequest {
   to: string;
   subject: string;
   body: string;
+}
+
+/**
+ * The Desk report contract: Cortex writes this to the `mc.desk.mail.report.command` command's stdin for Report. The
+ * command saves a draft to `to` with the original attached as message/rfc822, for the principal to send. It never sends.
+ */
+export interface DeskMailReportRequest {
+  action: "report";
+  account: string;
+  /** The Message-ID without angle brackets; the message is looked up in INBOX, then in Junk. */
+  messageId: string;
+  to: string;
+}
+
+/** The Desk DMARC contract: Cortex writes this to the `mc.desk.mail.dmarc.command` command's stdin for a report mail a rule kept for the digest. */
+export interface DeskDmarcRequest {
+  action: "dmarc";
+  account: string;
+  /** The Message-ID without angle brackets. The command reads the one INBOX message with it, read-only. */
+  messageId: string;
+}
+
+/** A source IP whose mail failed SPF or DKIM (as DMARC evaluated them), with counts. */
+export interface DeskDmarcSource {
+  ip: string;
+  /** Messages from this source that failed SPF or DKIM. */
+  count: number;
+  spfFail: number;
+  dkimFail: number;
+  /** Messages that failed both, so failed DMARC. */
+  dmarcFail: number;
+}
+
+/** Counts for one header-from domain of a report. SPF and DKIM are the policy-evaluated (aligned) verdicts. */
+export interface DeskDmarcDomain {
+  domain: string;
+  messages: number;
+  spf: { pass: number; fail: number };
+  dkim: { pass: number; fail: number };
+  dmarcFail: number;
+  disposition: { none: number; quarantine: number; reject: number };
+  /** At most five sources, most failing messages first. */
+  failing: DeskDmarcSource[];
+}
+
+/** What the DMARC command prints on success. A refused report exits 3 with one sentence on stderr; any other failure exits 1. */
+export interface DeskDmarcReport {
+  /** The Message-ID of the report mail, without angle brackets. */
+  id: string;
+  org: string;
+  reportId: string;
+  /** ISO 8601 */
+  begin: string;
+  end: string;
+  policyDomain: string;
+  domains: DeskDmarcDomain[];
+  /** One plain sentence for the person. */
+  message: string;
 }
