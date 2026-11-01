@@ -106,13 +106,41 @@ export type DeskParseResult =
   | DeskWriteRequest
   | { kind: "none"; reason: string };
 
-/** The Desk mail-action contract: Cortex writes this to the `mc.desk.mail.actions.trash` command's stdin. */
+/** The legacy Desk mail-action contract: Cortex writes this to the `mc.desk.mail.actions.trash` command's stdin when no move command is set. */
 export interface DeskMailActionRequest {
   action: "trash";
   /** The account name the mail source put on the item. */
   account: string;
   /** The Message-ID without angle brackets, as the mail source sent it. */
   messageId: string;
+}
+
+/** Where a move sends a mail. The command resolves each target to one folder per account; nothing is ever expunged. */
+export type DeskMoveTarget = "archive" | "junk" | "trash";
+
+/** The Desk move contract: Cortex writes this to the `mc.desk.mail.actions.move` command's stdin for Archive, Spam and Delete. */
+export interface DeskMailMoveRequest {
+  action: "move";
+  account: string;
+  /** The Message-ID without angle brackets. The command moves the one INBOX message with it, or refuses. */
+  messageId: string;
+  target: DeskMoveTarget;
+}
+
+/** Undo of a move: the same command moves the one message with this Message-ID from the target's folder back to INBOX. */
+export interface DeskMailRestoreRequest {
+  action: "restore";
+  account: string;
+  messageId: string;
+  /** The target the mail was moved to. */
+  from: DeskMoveTarget;
+}
+
+/** What the move command prints on success: a receipt that names the folder. */
+export interface DeskMailMoveResult extends DeskWriteResult {
+  /** The folder the message is in now, e.g. "Archive", "Junk" or "INBOX". */
+  folder: string;
+  message: string;
 }
 
 /** The Desk reply-draft contract: Cortex writes this to the `mc.desk.mail.actions.draft` command's stdin. The command never sends. */

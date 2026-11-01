@@ -1,6 +1,9 @@
 import { ImapFlow } from "imapflow";
-import type { ImapAccount, Mailbox } from "./trash";
-import { pickTrash } from "./trash";
+import type { ImapAccount } from "./imap-account";
+import { imapAccount } from "./imap-account";
+import type { Mailbox } from "./move";
+import { spawnRunner } from "./run";
+import { Refusal } from "./writers";
 
 /** A Mailbox over one ImapFlow connection; the caller connects and logs out. */
 export function imapMailbox(client: ImapFlow): Mailbox {
@@ -15,7 +18,7 @@ export function imapMailbox(client: ImapFlow): Mailbox {
       const [m] = await client.fetchAll([uid], { envelope: true }, { uid: true });
       return m?.envelope?.messageId;
     },
-    trashPath: async () => pickTrash(await client.list()),
+    folders: async () => (await client.list()).map((b) => ({ path: b.path, name: b.name, ...(b.specialUse ? { specialUse: b.specialUse } : {}) })),
     move: async (uid, target) => Boolean(await client.messageMove([uid], target, { uid: true })),
   };
 }
@@ -29,4 +32,20 @@ export function connectImap(account: ImapAccount): ImapFlow {
     auth: { user: account.user, pass: account.pass },
     logger: false,
   });
+}
+
+/** Connects to one account from the `email` CLI's config, runs `work` on its mailbox, and always logs out. */
+export async function withMailbox<T>(account: string, work: (box: Mailbox) => Promise<T>): Promise<T> {
+  const client = connectImap(await imapAccount(account, spawnRunner));
+  client.on("error", () => undefined);
+  try {
+    await client.connect();
+  } catch {
+    throw new Refusal(`The ${account} mail server did not accept the connection.`);
+  }
+  try {
+    return await work(imapMailbox(client));
+  } finally {
+    await client.logout().catch(() => undefined);
+  }
 }

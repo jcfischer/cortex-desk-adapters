@@ -7,6 +7,7 @@
   "bin": {
     "desk-calendar": "bin/desk-calendar.ts",
     "desk-mail": "bin/desk-mail.ts",
+    "desk-mail-move": "bin/desk-mail-move.ts",
     "desk-mail-trash": "bin/desk-mail-trash.ts",
     "desk-mail-draft": "bin/desk-mail-draft.ts",
     "desk-goal": "bin/desk-goal.ts",
