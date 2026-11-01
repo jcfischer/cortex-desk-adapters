@@ -89,7 +89,7 @@ export function readMoveRequest(text: string): DeskMailMoveRequest | DeskMailRes
     if (!isTarget(body.from)) throw new Refusal("The request names no valid folder to restore from: archive, junk or trash.");
     return { action: "restore", ...addressOf(body), from: body.from };
   }
-  throw new Refusal("This command only moves mail, or moves it back to the inbox.");
+  throw new Refusal("This command only moves mail, moves it back to the inbox, or locates it.");
 }
 
 async function exactUids(box: Mailbox, messageId: string): Promise<number[]> {

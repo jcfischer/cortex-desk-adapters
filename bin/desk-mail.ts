@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * desk-mail: recent mail from the `email` CLI as Desk items.
- * Usage: desk-mail --account work --account personal [--days 3] [--limit 40] [--bodies 15]
+ * Usage: desk-mail --account work --account personal [--days 3] [--limit 40] [--bodies 15] [--authserv mx.example.org]...
  * Bodies are fetched read-only (no --mark-read) for the newest unread messages only. Headers (List-Id, List-Unsubscribe,
  * Authentication-Results, Reply-To, In-Reply-To) are read over IMAP with BODY.PEEK; without them the mail is listed as before.
  */
@@ -16,6 +16,7 @@ const { values } = parseArgs({
     days: { type: "string", default: "3" },
     limit: { type: "string", default: "40" },
     bodies: { type: "string", default: "15" },
+    authserv: { type: "string", multiple: true, default: [] },
   },
 });
 
@@ -38,7 +39,7 @@ for (const account of values.account ?? []) {
       paragraphs.set(m.uid, m.snippet);
     }
   }
-  const headers = await readHeaders(account, listed.map((m) => m.uid)).catch((err: unknown): Map<number, DeskMailHeaders> => {
+  const headers = await readHeaders(account, listed.map((m) => m.uid), values.authserv).catch((err: unknown): Map<number, DeskMailHeaders> => {
     process.stderr.write(`desk-mail: headers for ${account} were not read: ${err instanceof Error ? err.message : String(err)}\n`);
     return new Map();
   });

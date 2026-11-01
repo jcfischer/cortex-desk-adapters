@@ -117,7 +117,7 @@ it("reads move, restore and the legacy trash request, refusing anything else", (
   expect(readMoveRequest(JSON.stringify({ action: "trash", account: "work", messageId: ID }))).toEqual({ action: "move", ...TRASH });
   expect(() => readMoveRequest(JSON.stringify({ action: "move", account: "work", messageId: ID, target: "INBOX" }))).toThrow("The request names no valid target: archive, junk or trash.");
   expect(() => readMoveRequest(JSON.stringify({ action: "restore", account: "work", messageId: ID }))).toThrow("The request names no valid folder to restore from");
-  expect(() => readMoveRequest(JSON.stringify({ action: "delete", account: "work", messageId: ID }))).toThrow("This command only moves mail, or moves it back to the inbox.");
+  expect(() => readMoveRequest(JSON.stringify({ action: "delete", account: "work", messageId: ID }))).toThrow("This command only moves mail, moves it back to the inbox, or locates it.");
   expect(() => readMoveRequest("[]")).toThrow("The request is not a JSON object.");
 });
 

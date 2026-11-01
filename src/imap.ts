@@ -2,7 +2,7 @@ import { ImapFlow } from "imapflow";
 import type { ImapAccount } from "./imap-account";
 import { imapAccount } from "./imap-account";
 import type { DeskMailHeaders } from "./contract";
-import { HEADER_FIELDS, parseMailHeaders } from "./mail-headers";
+import { HEADER_FIELDS, headersOf } from "./mail-headers";
 import type { Mailbox } from "./move";
 import { spawnRunner } from "./run";
 import { Refusal } from "./writers";
@@ -40,8 +40,7 @@ export function connectImap(account: ImapAccount): ImapFlow {
   });
 }
 
-/** Connects to one account from the `email` CLI's config, runs `work` on its mailbox, and always logs out. */
-export async function withMailbox<T>(account: string, work: (box: Mailbox) => Promise<T>): Promise<T> {
+async function withImapClient<T>(account: string, work: (client: ImapFlow) => Promise<T>): Promise<T> {
   const client = connectImap(await imapAccount(account, spawnRunner));
   client.on("error", () => undefined);
   try {
@@ -50,31 +49,29 @@ export async function withMailbox<T>(account: string, work: (box: Mailbox) => Pr
     throw new Refusal(`The ${account} mail server did not accept the connection.`);
   }
   try {
-    return await work(imapMailbox(client));
+    return await work(client);
   } finally {
     await client.logout().catch(() => undefined);
   }
 }
 
+/** Connects to one account from the `email` CLI's config, runs `work` on its mailbox, and always logs out. */
+export const withMailbox = <T>(account: string, work: (box: Mailbox) => Promise<T>): Promise<T> => withImapClient(account, (client) => work(imapMailbox(client)));
+
 /** Reads the Desk's header fields for these INBOX UIDs, read-only (BODY.PEEK), so no message is marked read. */
-export async function readHeaders(account: string, uids: number[], mailbox = "INBOX"): Promise<Map<number, DeskMailHeaders>> {
+export async function readHeaders(account: string, uids: number[], trustedAuthserv: readonly string[] = [], mailbox = "INBOX"): Promise<Map<number, DeskMailHeaders>> {
   const out = new Map<number, DeskMailHeaders>();
   if (uids.length === 0) return out;
-  const client = connectImap(await imapAccount(account, spawnRunner));
-  client.on("error", () => undefined);
-  await client.connect();
-  try {
+  return withImapClient(account, async (client) => {
     const lock = await client.getMailboxLock(mailbox, { readOnly: true });
     try {
-      for (const m of await client.fetchAll(uids, { headers: [...HEADER_FIELDS] }, { uid: true })) {
-        const headers = m.headers ? parseMailHeaders(m.headers.toString("utf8")) : undefined;
+      for (const m of await client.fetchAll(uids, { headers: HEADER_FIELDS }, { uid: true })) {
+        const headers = headersOf(m, trustedAuthserv);
         if (headers) out.set(m.uid, headers);
       }
     } finally {
       lock.release();
     }
-  } finally {
-    await client.logout().catch(() => undefined);
-  }
-  return out;
+    return out;
+  });
 }

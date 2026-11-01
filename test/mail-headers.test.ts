@@ -37,3 +37,18 @@ it("leaves out what it cannot read: unknown verdicts, overlong values, control c
   expect(parseMailHeaders("")).toBeUndefined();
   expect(parseMailHeaders("Authentication-Results: mx; none")).toBeUndefined();
 });
+
+it("ignores an ARC chain's comment and reads the verdicts of this hop", () => {
+  const raw = "Authentication-Results: mx.google.com; arc=pass (i=1 spf=pass spfdomain=a.example dkim=pass dmarc=pass); spf=softfail smtp.mailfrom=a.example; dkim=fail (bad sig) header.i=@a.example; dmarc=fail (p=REJECT) header.from=a.example";
+  expect(parseMailHeaders(raw)?.authResults).toEqual({ spf: "softfail", dkim: "fail", dmarc: "fail" });
+});
+
+it("reads verdicts only from a trusted authserv-id when one is given, so a forged topmost header is ignored", () => {
+  const raw = [
+    "Authentication-Results: forged.example; spf=pass; dkim=pass; dmarc=pass",
+    "Authentication-Results: MX.Ours.Example (comment); spf=fail; dmarc=fail",
+  ].join("\n");
+  expect(parseMailHeaders(raw)?.authResults).toEqual({ spf: "pass", dkim: "pass", dmarc: "pass" });
+  expect(parseMailHeaders(raw, ["mx.ours.example"])?.authResults).toEqual({ spf: "fail", dmarc: "fail" });
+  expect(parseMailHeaders(raw, ["other.example"])).toBeUndefined();
+});

@@ -1,17 +1,25 @@
 import type { DeskAuthVerdict, DeskMailHeaders } from "./contract";
 
-export const HEADER_FIELDS = ["list-id", "list-unsubscribe", "list-unsubscribe-post", "authentication-results", "reply-to", "in-reply-to"] as const;
+const TEXT_FIELDS = {
+  listId: { name: "list-id", max: 300 },
+  listUnsubscribe: { name: "list-unsubscribe", max: 2000 },
+  listUnsubscribePost: { name: "list-unsubscribe-post", max: 200 },
+  replyTo: { name: "reply-to", max: 300 },
+  inReplyTo: { name: "in-reply-to", max: 1000 },
+} as const;
+
+type TextField = keyof typeof TEXT_FIELDS;
+
+export const HEADER_FIELDS: string[] = [...Object.values(TEXT_FIELDS).map((f) => f.name), "authentication-results"];
 
 const VERDICTS: readonly DeskAuthVerdict[] = ["pass", "fail", "softfail", "neutral", "none", "temperror", "permerror", "policy"];
-const MAX = { listId: 300, listUnsubscribe: 2000, listUnsubscribePost: 200, replyTo: 300, inReplyTo: 1000 };
 
 const CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f]/g;
 
 function unfold(raw: string): Map<string, string[]> {
   const fields = new Map<string, string[]>();
-  const lines = raw.replace(/\r\n/g, "\n").split("\n");
   const joined: string[] = [];
-  for (const line of lines) {
+  for (const line of raw.replace(/\r\n/g, "\n").split("\n")) {
     if (/^[ \t]/.test(line) && joined.length > 0) joined[joined.length - 1] += ` ${line.trim()}`;
     else if (line.trim()) joined.push(line);
   }
@@ -26,42 +34,55 @@ function unfold(raw: string): Map<string, string[]> {
   return fields;
 }
 
-const capped = (value: string | undefined, max: number): string | undefined => (value && value.length <= max ? value : undefined);
+const withoutComments = (value: string): string => {
+  let out = value;
+  for (let previous = ""; previous !== out; ) {
+    previous = out;
+    out = out.replace(/\([^()]*\)/g, " ");
+  }
+  return out;
+};
+
+const authservId = (results: string): string => withoutComments(results).split(";")[0]?.trim().split(/\s+/)[0]?.toLowerCase() ?? "";
 
 function verdict(results: string, method: "spf" | "dkim" | "dmarc"): DeskAuthVerdict | undefined {
-  const found = new RegExp(`(?:^|[;\\s])${method}\\s*=\\s*([a-z]+)`, "i").exec(results)?.[1]?.toLowerCase();
+  const found = withoutComments(results)
+    .split(";")
+    .slice(1)
+    .map((resinfo) => new RegExp(`^\\s*${method}\\s*=\\s*([a-z]+)`, "i").exec(resinfo)?.[1]?.toLowerCase())
+    .find((v) => v !== undefined);
   return VERDICTS.find((v) => v === found);
 }
 
-function authResults(values: string[] | undefined): DeskMailHeaders["authResults"] {
-  const first = values?.[0];
-  if (!first) return undefined;
-  const spf = verdict(first, "spf");
-  const dkim = verdict(first, "dkim");
-  const dmarc = verdict(first, "dmarc");
+function authResults(values: string[] | undefined, trusted: readonly string[]): DeskMailHeaders["authResults"] {
+  const ids = trusted.map((t) => t.toLowerCase());
+  const header = ids.length > 0 ? values?.find((v) => ids.includes(authservId(v))) : values?.[0];
+  if (!header) return undefined;
+  const spf = verdict(header, "spf");
+  const dkim = verdict(header, "dkim");
+  const dmarc = verdict(header, "dmarc");
   return spf || dkim || dmarc ? { ...(spf ? { spf } : {}), ...(dkim ? { dkim } : {}), ...(dmarc ? { dmarc } : {}) } : undefined;
 }
 
 /**
  * The headers later Desk steps need, from a raw header block. Values are unfolded, stripped of control characters and
- * dropped when too long; Authentication-Results keeps only the topmost header's SPF, DKIM and DMARC verdicts. A header
- * that cannot be read is left out, so a malformed message never drops the mail.
+ * dropped when too long. Authentication-Results gives SPF, DKIM and DMARC verdicts from one header: the topmost, or,
+ * with `trustedAuthserv`, the topmost whose authserv-id is listed (none listed: no verdicts). Comments such as an ARC
+ * chain's `(i=1 spf=pass …)` are ignored. A header that cannot be read is left out, so a malformed message never drops the mail.
  */
-export function parseMailHeaders(raw: string): DeskMailHeaders | undefined {
+export function parseMailHeaders(raw: string, trustedAuthserv: readonly string[] = []): DeskMailHeaders | undefined {
   const fields = unfold(raw);
-  const one = (name: string, max: number): string | undefined => capped(fields.get(name)?.[0], max);
   const headers: DeskMailHeaders = {};
-  const listId = one("list-id", MAX.listId);
-  const listUnsubscribe = one("list-unsubscribe", MAX.listUnsubscribe);
-  const listUnsubscribePost = one("list-unsubscribe-post", MAX.listUnsubscribePost);
-  const auth = authResults(fields.get("authentication-results"));
-  const replyTo = one("reply-to", MAX.replyTo);
-  const inReplyTo = one("in-reply-to", MAX.inReplyTo);
-  if (listId) headers.listId = listId;
-  if (listUnsubscribe) headers.listUnsubscribe = listUnsubscribe;
-  if (listUnsubscribePost) headers.listUnsubscribePost = listUnsubscribePost;
+  for (const key of Object.keys(TEXT_FIELDS) as TextField[]) {
+    const { name, max } = TEXT_FIELDS[key];
+    const value = fields.get(name)?.[0];
+    if (value && value.length <= max) headers[key] = value;
+  }
+  const auth = authResults(fields.get("authentication-results"), trustedAuthserv);
   if (auth) headers.authResults = auth;
-  if (replyTo) headers.replyTo = replyTo;
-  if (inReplyTo) headers.inReplyTo = inReplyTo;
   return Object.keys(headers).length > 0 ? headers : undefined;
 }
+
+/** The headers of one fetched message, as imapflow returns them for `headers: HEADER_FIELDS`. */
+export const headersOf = (m: { headers?: Buffer }, trustedAuthserv: readonly string[] = []): DeskMailHeaders | undefined =>
+  m.headers ? parseMailHeaders(m.headers.toString("utf8"), trustedAuthserv) : undefined;
