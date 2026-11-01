@@ -101,7 +101,6 @@ async function onlyMessage(box: Mailbox, messageId: string, where: string): Prom
 }
 
 async function moveOne(box: Mailbox, account: string, from: string, to: string, messageId: string): Promise<void> {
-  if (!box.canMove()) throw new Refusal(`The ${account} mail server cannot move messages (no IMAP MOVE), so nothing was moved.`);
   const release = await box.open(from);
   try {
     const uid = await onlyMessage(box, messageId, `${account} ${from}`);
