@@ -63,11 +63,13 @@ function addressOf(body: Record<string, unknown>): { account: string; messageId:
   return { account, messageId: bareMessageId(messageId) };
 }
 
+const trashFrom = (body: Record<string, unknown>): DeskMailMoveRequest => ({ action: "move", ...addressOf(body), target: "trash" });
+
 /** Parses `{ action: "trash", account, messageId }`, refusing anything else. */
 export function readTrashRequest(text: string): DeskMailMoveRequest {
   const body = parse(text);
   if (body.action !== "trash") throw new Refusal("This command only moves mail to Trash.");
-  return { action: "move", ...addressOf(body), target: "trash" };
+  return trashFrom(body);
 }
 
 /**
@@ -76,7 +78,7 @@ export function readTrashRequest(text: string): DeskMailMoveRequest {
  */
 export function readMoveRequest(text: string): DeskMailMoveRequest | DeskMailRestoreRequest {
   const body = parse(text);
-  if (body.action === "trash") return readTrashRequest(text);
+  if (body.action === "trash") return trashFrom(body);
   if (body.action === "move") {
     if (!isTarget(body.target)) throw new Refusal("The request names no valid target: archive, junk or trash.");
     return { action: "move", ...addressOf(body), target: body.target };
