@@ -183,3 +183,11 @@ it("validates explicit commitment independently of ranking, rejects unknown valu
   expect(() => validateTriage({ category: "reply", commitment: "yes", reason: "Evidence" }, new Set())).toThrow("invalid commitment");
   expect(validateTriage({ category: "meeting", reason: "Existing meeting" }, new Set()).commitment).toBeUndefined();
 });
+
+describe("the suspicious marker", () => {
+  it("is kept when true, dropped when false, and refused when not a boolean", () => {
+    expect(validateTriage({ category: "fyi", reason: "Looks off.", suspicious: true }, new Set()).suspicious).toBe(true);
+    expect(validateTriage({ category: "fyi", reason: "Fine.", suspicious: false }, new Set())).toEqual({ category: "fyi", reason: "Fine." });
+    expect(() => validateTriage({ category: "fyi", reason: "r", suspicious: "yes" }, new Set())).toThrow("the answer's suspicious marker is not true or false");
+  });
+});

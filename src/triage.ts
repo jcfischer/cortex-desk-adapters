@@ -60,6 +60,7 @@ export interface TriageAnswer {
   summary?: string;
   suggestedAction?: SuggestedAction;
   predictedAction?: PredictedAction;
+  suspicious?: boolean;
   evidence?: TriageEvidence[];
 }
 
@@ -188,7 +189,7 @@ export function parseAnswerText(text: string): unknown {
   return JSON.parse(text.slice(start, end + 1));
 }
 
-const ANSWER_KEYS = new Set(["commitment", "category", "meetingKey", "reason", "summary", "suggestedAction", "predictedAction", "evidence"]);
+const ANSWER_KEYS = new Set(["commitment", "category", "meetingKey", "reason", "summary", "suggestedAction", "predictedAction", "suspicious", "evidence"]);
 const EVIDENCE_KEYS = new Set(["kind", "ref", "title"]);
 
 const extraKey = (o: Record<string, unknown>, allowed: Set<string>): string | undefined => Object.keys(o).find((k) => !allowed.has(k));
@@ -225,6 +226,10 @@ export function validateTriage(answer: unknown, meetingKeys: ReadonlySet<string>
   if (!absent(answer.predictedAction)) {
     if (!oneOf(PREDICTED_ACTIONS, answer.predictedAction)) throw new Error("the answer's predictedAction is not one the Desk knows");
     out.predictedAction = answer.predictedAction;
+  }
+  if (!absent(answer.suspicious)) {
+    if (typeof answer.suspicious !== "boolean") throw new Error("the answer's suspicious marker is not true or false");
+    if (answer.suspicious) out.suspicious = true;
   }
   if (!absent(answer.evidence)) {
     if (!Array.isArray(answer.evidence)) throw new Error("the answer's evidence is not a list");

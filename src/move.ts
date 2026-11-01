@@ -35,8 +35,10 @@ export const bareMessageId = (id: string): string => id.trim().replace(/^<|>$/g,
 const isTarget = (v: unknown): v is DeskMoveTarget => MOVE_TARGETS.includes(v as DeskMoveTarget);
 
 /** Picks the folder for a target: the one with its special-use flag, else one with a usual name. Never another target's folder. */
-export function pickFolder(boxes: Folder[], target: DeskMoveTarget): string | undefined {
-  const { flag, names } = TARGETS[target];
+export const pickFolder = (boxes: Folder[], target: DeskMoveTarget): string | undefined => folderByUse(boxes, TARGETS[target].flag, TARGETS[target].names);
+
+/** The folder with this special-use flag, else the first with one of these names (case-insensitive, name or path). */
+export function folderByUse(boxes: Folder[], flag: string, names: readonly string[]): string | undefined {
   const flagged = boxes.find((b) => b.specialUse === flag);
   if (flagged) return flagged.path;
   for (const name of names) {
