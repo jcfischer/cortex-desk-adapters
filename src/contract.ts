@@ -215,7 +215,9 @@ export interface DeskDmarcDomain {
 }
 
 /** What the DMARC command prints on success. A refused report exits 3 with one sentence on stderr; any other failure exits 1. */
-export interface DeskDmarcReport extends DeskWriteResult {
+export interface DeskDmarcReport {
+  /** The Message-ID of the report mail, without angle brackets. */
+  id: string;
   org: string;
   reportId: string;
   /** ISO 8601 */
@@ -223,5 +225,6 @@ export interface DeskDmarcReport extends DeskWriteResult {
   end: string;
   policyDomain: string;
   domains: DeskDmarcDomain[];
+  /** One plain sentence for the person. */
   message: string;
 }

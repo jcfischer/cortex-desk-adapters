@@ -173,9 +173,9 @@ On success the command exits 0 and prints a `DeskDmarcReport`: `{ "id", "org", "
 
 `desk-mail-dmarc [--mailbox INBOX]` is that command for the `email` CLI's accounts. It opens the mailbox read-only and fetches parts with `BODY.PEEK`, so the mail stays unread. It reads the one attachment that is zip, gzip or XML and refuses (exit 3), reading nothing further:
 
-- a mail with no such attachment, or with more than one;
+- a Message-ID that matches more than one INBOX message, a mail with no such attachment, or one with more than one;
 - an attachment over 1 MiB, or one that unpacks to more than 8 MiB (a zip bomb stops at the cap), a zip with more than one file, an encrypted zip, or a zip whose file is not the size it declares;
-- XML with a DOCTYPE or entity declaration, XML that is not well-formed, a root other than `<feedback>`, or more than 20,000 records.
+- XML with a DOCTYPE or entity declaration, XML that is not well-formed, a root other than `<feedback>`, a record without a count, or more than 20,000 records.
 
 Nothing in the report is executed or rendered: the command reads elements and text only.
 

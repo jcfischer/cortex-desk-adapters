@@ -125,6 +125,8 @@ describe("readReport", () => {
     expect(refusal(() => readReport(Buffer.from("not gzip at all"), "gzip", "x"))).toContain("damaged");
     expect(refusal(() => readReport(Buffer.from("PK nothing"), "zip", "x"))).toContain("central directory");
     expect(refusal(() => readReport(Buffer.from(report([{ ip: "192.0.2.1", count: -1, spf: "pass", dkim: "pass" }])), "xml", "x"))).toContain("valid count");
+    expect(refusal(() => readReport(Buffer.from(PASSING.replace("<count>12</count>", "<count></count>")), "xml", "x"))).toContain("valid count");
+    expect(refusal(() => readReport(Buffer.from(PASSING.replace("<count>12</count>", "")), "xml", "x"))).toContain("valid count");
   });
 
   test("a DOCTYPE or entity declaration is refused, never expanded", () => {
@@ -139,6 +141,7 @@ describe("readReport", () => {
     expect(refusal(() => readReport(bomb, "gzip", "x"))).toContain("unpacks to more than");
     expect(refusal(() => readReport(zip("r.xml", huge), "zip", "x"))).toContain("unpacks to more than");
     expect(refusal(() => readReport(zip("r.xml", Buffer.from(PASSING), 8, 1), "zip", "x"))).toContain("not the size it declares");
+    expect(refusal(() => readReport(zip("r.xml", huge, 8, 100), "zip", "x"))).toContain("unpacks to more than");
   });
 
   test("an attachment over the size cap is refused before it is unpacked", () => {
@@ -147,6 +150,16 @@ describe("readReport", () => {
 });
 
 describe("parseXml", () => {
+  test("an unterminated tag over a megabyte of spaces is refused in linear time", () => {
+    const started = performance.now();
+    expect(refusal(() => parseXml(`<feedback${" ".repeat(1 << 20)}`))).toContain("not well-formed");
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
+  test("an out-of-range character reference becomes U+FFFD instead of throwing", () => {
+    expect(parseXml("<feedback><x>&#x110000;&#99999999;&#65;</x></feedback>").children[0]?.text).toBe("\ufffd\ufffdA");
+  });
+
   test("decodes the predefined entities and CDATA, ignores comments and namespace prefixes", () => {
     const root = parseXml(`<a:feedback xmlns:a="x"><!-- c --><a:x>1 &lt; 2</a:x><y><![CDATA[a<b]]></y><z/></a:feedback>`);
     expect(root.name).toBe("feedback");

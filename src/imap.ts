@@ -3,7 +3,7 @@ import type { ImapAccount } from "./imap-account";
 import { imapAccount } from "./imap-account";
 import type { DeskMailHeaders } from "./contract";
 import { HEADER_FIELDS, headersOf } from "./mail-headers";
-import type { Attachment, ReportMailbox } from "./dmarc";
+import { ReportRefusal, type Attachment, type ReportMailbox } from "./dmarc";
 import { bareMessageId, type Mailbox } from "./move";
 import { spawnRunner } from "./run";
 import { Refusal } from "./writers";
@@ -105,13 +105,19 @@ export async function withReportMailbox<T>(account: string, work: (box: ReportMa
   return withImapClient(account, async (client) => {
     const lock = await client.getMailboxLock(mailbox, { readOnly: true });
     try {
-      const uidOf = async (messageId: string): Promise<number> => {
+      const uids = new Map<string, Promise<number>>();
+      const findUid = async (messageId: string): Promise<number> => {
         const found = (await client.search({ header: { "message-id": messageId } }, { uid: true })) || [];
         const exact = found.length ? (await client.fetchAll(found, { envelope: true }, { uid: true })).filter((m) => bareMessageId(m.envelope?.messageId ?? "") === messageId) : [];
         const [only, ...others] = exact;
         if (!only) throw new Refusal(`The message is no longer in the ${account} ${mailbox}.`);
-        if (others.length > 0) throw new Refusal(`${exact.length} messages in the ${account} ${mailbox} share this Message-ID, so none was read.`);
+        if (others.length > 0) throw new ReportRefusal(`${exact.length} messages in the ${account} ${mailbox} share this Message-ID, so none was read.`);
         return only.uid;
+      };
+      const uidOf = (messageId: string): Promise<number> => {
+        const known = uids.get(messageId) ?? findUid(messageId);
+        uids.set(messageId, known);
+        return known;
       };
       return await work({
         attachments: async (messageId) => {
