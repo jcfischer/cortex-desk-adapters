@@ -32,6 +32,20 @@ export interface DeskSourceMail {
   /** Opens the message in the principal's mail client, e.g. message://%3Cid%3E for Apple Mail. */
   url?: string;
   account?: string;
+  /** Headers later Desk steps read. Cortex treats every value as untrusted data. */
+  headers?: DeskMailHeaders;
+}
+
+/** An SPF, DKIM or DMARC verdict from the topmost Authentication-Results header. */
+export type DeskAuthVerdict = "pass" | "fail" | "softfail" | "neutral" | "none" | "temperror" | "permerror" | "policy";
+
+export interface DeskMailHeaders {
+  listId?: string;
+  listUnsubscribe?: string;
+  listUnsubscribePost?: string;
+  authResults?: { spf?: DeskAuthVerdict; dkim?: DeskAuthVerdict; dmarc?: DeskAuthVerdict };
+  replyTo?: string;
+  inReplyTo?: string;
 }
 
 export interface DeskSourceOutput {
@@ -134,6 +148,20 @@ export interface DeskMailRestoreRequest {
   messageId: string;
   /** The target the mail was moved to. */
   from: DeskMoveTarget;
+}
+
+/** Where a mail is now: the same command answers it for a mail that left the Desk's list without a Desk action. */
+export interface DeskMailLocateRequest {
+  action: "locate";
+  account: string;
+  messageId: string;
+}
+
+/** `place` is the folder kind the message is in; `gone` when it is in none of INBOX, Archive, Junk or Trash. */
+export interface DeskMailLocateResult extends DeskWriteResult {
+  place: "inbox" | DeskMoveTarget | "gone";
+  folder?: string;
+  unread?: boolean;
 }
 
 /** What the move command prints on success: a receipt that names the folder. */

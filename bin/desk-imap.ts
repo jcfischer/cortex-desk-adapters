@@ -2,6 +2,7 @@
 import { parseArgs } from "node:util";
 import { ImapFlow } from "imapflow";
 import { firstParagraph, textPart, toDeskMail, type StructureNode } from "../src/imap-mail";
+import { HEADER_FIELDS, headersOf } from "../src/mail-headers";
 import type { DeskSourceMail, DeskSourceOutput } from "../src/contract";
 
 const { values } = parseArgs({
@@ -14,6 +15,7 @@ const { values } = parseArgs({
     mailbox: { type: "string", default: "INBOX" },
     account: { type: "string", default: "mail" },
     limit: { type: "string", default: "30" },
+    authserv: { type: "string", multiple: true, default: [] },
   },
 });
 
@@ -58,12 +60,13 @@ try {
     const uids = (await client.search({ seen: false }, { uid: true })) || [];
     const newest = uids.sort((a, b) => b - a).slice(0, limit);
     if (newest.length > 0) {
-      const messages = await client.fetchAll(newest, { envelope: true, bodyStructure: true, internalDate: true }, { uid: true });
+      const messages = await client.fetchAll(newest, { envelope: true, bodyStructure: true, internalDate: true, headers: HEADER_FIELDS }, { uid: true });
       for (const m of messages) {
         const paragraph = await readText(m.uid, m.bodyStructure).catch(() => undefined);
         const received = m.internalDate instanceof Date ? m.internalDate : new Date();
         const item = m.envelope ? toDeskMail(m.envelope, values.account ?? "mail", paragraph, received) : null;
-        if (item) items.push(item);
+        const headers = headersOf(m, values.authserv);
+        if (item) items.push(headers ? { ...item, headers } : item);
       }
     }
   } finally {

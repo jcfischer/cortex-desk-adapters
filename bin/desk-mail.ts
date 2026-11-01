@@ -1,12 +1,14 @@
 #!/usr/bin/env bun
 /**
  * desk-mail: recent mail from the `email` CLI as Desk items.
- * Usage: desk-mail --account work --account personal [--days 3] [--limit 40] [--bodies 15]
- * Bodies are fetched read-only (no --mark-read) for the newest unread messages only.
+ * Usage: desk-mail --account work --account personal [--days 3] [--limit 40] [--bodies 15] [--authserv mx.example.org]...
+ * Bodies are fetched read-only (no --mark-read) for the newest unread messages only. Headers (List-Id, List-Unsubscribe,
+ * Authentication-Results, Reply-To, In-Reply-To) are read over IMAP with BODY.PEEK; without them the mail is listed as before.
  */
 import { parseArgs } from "node:util";
 import { toDeskMail, firstParagraph, type EmailListEntry } from "../src/mail";
-import type { DeskSourceMail, DeskSourceOutput } from "../src/contract";
+import type { DeskMailHeaders, DeskSourceMail, DeskSourceOutput } from "../src/contract";
+import { readHeaders } from "../src/imap";
 
 const { values } = parseArgs({
   options: {
@@ -14,6 +16,7 @@ const { values } = parseArgs({
     days: { type: "string", default: "3" },
     limit: { type: "string", default: "40" },
     bodies: { type: "string", default: "15" },
+    authserv: { type: "string", multiple: true, default: [] },
   },
 });
 
@@ -36,7 +39,15 @@ for (const account of values.account ?? []) {
       paragraphs.set(m.uid, m.snippet);
     }
   }
-  for (const m of listed) items.push(toDeskMail(m, account, paragraphs.get(m.uid) ?? m.snippet));
+  const headers = await readHeaders(account, listed.map((m) => m.uid), values.authserv).catch((err: unknown): Map<number, DeskMailHeaders> => {
+    process.stderr.write(`desk-mail: headers for ${account} were not read: ${err instanceof Error ? err.message : String(err)}\n`);
+    return new Map();
+  });
+  for (const m of listed) {
+    const item = toDeskMail(m, account, paragraphs.get(m.uid) ?? m.snippet);
+    const h = headers.get(m.uid);
+    items.push(h ? { ...item, headers: h } : item);
+  }
 }
 
 const output: DeskSourceOutput = { items };
