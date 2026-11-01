@@ -1,4 +1,6 @@
 import { describe, expect, it } from "bun:test";
+import type { ImapFlow } from "imapflow";
+import { phishingReportBox } from "../src/imap";
 import { readReportRequest, reportDraft, saveReportDraft, type PhishingReportBox } from "../src/report";
 import type { Folder } from "../src/move";
 
@@ -55,5 +57,17 @@ describe("saving a report draft", () => {
     const noDrafts = box({ INBOX: ORIGINAL }, [{ path: "INBOX", name: "INBOX" }]);
     await expect(saveReportDraft(req, noDrafts.b)).rejects.toThrow("The work account has no Drafts mailbox, so no report was saved.");
     expect([...gone.appended, ...noDrafts.appended]).toEqual([]);
+  });
+});
+
+describe("the IMAP report box", () => {
+  it("selects the Drafts folder read-write before appending, so the server keeps the \\Draft flag", async () => {
+    const calls: string[] = [];
+    const client = {
+      getMailboxLock: async (path: string, opts?: { readOnly?: boolean }) => { calls.push(`lock ${path}${opts?.readOnly ? " read-only" : ""}`); return { release: () => { calls.push(`release ${path}`); } }; },
+      append: async (path: string, _content: Buffer, flags: string[]) => { calls.push(`append ${path} ${flags.join(" ")}`); return { destination: path }; },
+    };
+    await phishingReportBox(client as unknown as ImapFlow, "work").append("Drafts", new TextEncoder().encode("x"), ["\\Draft", "\\Seen"]);
+    expect(calls).toEqual(["lock Drafts", "append Drafts \\Draft \\Seen", "release Drafts"]);
   });
 });
