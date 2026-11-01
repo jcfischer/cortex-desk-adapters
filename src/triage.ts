@@ -2,6 +2,7 @@ import { isRecord } from "./guards";
 
 export const CATEGORIES = ["action", "reply", "meeting", "fyi", "bulk"] as const;
 export const SUGGESTED_ACTIONS = ["reply", "archive", "link-meeting", "task", "none"] as const;
+export const PREDICTED_ACTIONS = ["archive", "junk", "trash", "reply", "plan", "todo", "keep"] as const;
 export const EVIDENCE_KINDS = ["mail", "event", "note"] as const;
 export const MAX_REASON = 200;
 export const MAX_SUMMARY = 600;
@@ -9,9 +10,21 @@ export const MAX_EVIDENCE = 5;
 export const MAX_REF = 300;
 export const MAX_TITLE = 200;
 const MAX_CORRECTIONS = 10;
+const MAX_EXAMPLES = 10;
 
 export type Category = (typeof CATEGORIES)[number];
 export type SuggestedAction = (typeof SUGGESTED_ACTIONS)[number];
+export type PredictedAction = (typeof PREDICTED_ACTIONS)[number];
+
+export interface TriageExample {
+  subject: string;
+  summary: string;
+  sender: string;
+  action: string;
+  decidedAt: string;
+  similarity: number;
+  weight: number;
+}
 
 export interface TriageMail {
   id: string;
@@ -28,6 +41,8 @@ export interface TriageRequest {
   vips: string[];
   unimportant: string[];
   corrections: { kind: string; source: string; mode: string; label: string }[];
+  examples: TriageExample[];
+  examplesBasis: string;
 }
 
 export interface TriageEvidence {
@@ -43,6 +58,7 @@ export interface TriageAnswer {
   reason: string;
   summary?: string;
   suggestedAction?: SuggestedAction;
+  predictedAction?: PredictedAction;
   evidence?: TriageEvidence[];
 }
 
@@ -54,6 +70,10 @@ const strings = (v: unknown, field: string): string[] => {
   if (v === undefined) return [];
   if (!Array.isArray(v)) throw new Error(`the request's ${field} is not a list`);
   return v.map((x, i) => str(x, `${field}[${i}]`));
+};
+const num = (v: unknown, field: string): number => {
+  if (typeof v !== "number" || !Number.isFinite(v)) throw new Error(`the request's ${field} is not a number`);
+  return v;
 };
 const records = (v: unknown, field: string): Record<string, unknown>[] => {
   if (v === undefined) return [];
@@ -82,6 +102,12 @@ export function readTriageRequest(text: string): TriageRequest {
     corrections: records(body.corrections, "corrections").slice(0, MAX_CORRECTIONS).map((x, i) => ({
       kind: str(x.kind, `corrections[${i}].kind`), source: str(x.source, `corrections[${i}].source`), mode: str(x.mode, `corrections[${i}].mode`), label: str(x.label, `corrections[${i}].label`),
     })),
+    examples: records(body.examples, "examples").slice(0, MAX_EXAMPLES).map((x, i) => ({
+      subject: str(x.subject, `examples[${i}].subject`), summary: str(x.summary, `examples[${i}].summary`), sender: str(x.sender, `examples[${i}].sender`),
+      action: str(x.action, `examples[${i}].action`), decidedAt: str(x.decidedAt, `examples[${i}].decidedAt`),
+      similarity: num(x.similarity, `examples[${i}].similarity`), weight: num(x.weight, `examples[${i}].weight`),
+    })),
+    examplesBasis: typeof body.examplesBasis === "string" ? body.examplesBasis : "sender",
   };
 }
 
@@ -110,9 +136,20 @@ export function renderCorrections(req: TriageRequest): string {
   return req.corrections.map((c) => `- The person ${CORRECTION_TEXT[c.mode] ?? `marked (${c.mode})`}: ${c.label}.`).join("\n");
 }
 
+const BASIS_TEXT: Record<string, string> = {
+  content: "found by content similarity",
+  sender: "found by the same sender domain or mailing list, not by content",
+};
+
+export function renderExamples(req: TriageRequest): string {
+  if (req.examples.length === 0) return "None yet.";
+  const head = `(${BASIS_TEXT[req.examplesBasis] ?? req.examplesBasis}; weight 2 marks a correction the person made)`;
+  return [head, ...req.examples.map((e) => `- ${e.action}${e.weight > 1 ? " (correction, weight 2)" : ""}, similarity ${e.similarity}: "${e.subject}" from ${e.sender}, ${e.decidedAt}. ${e.summary}`.trim())].join("\n");
+}
+
 export interface Prepared {
   triage_answer: TriageAnswer | null;
-  triage_queue: { mail: string; meetings: string; senders: string; corrections: string; account: string }[];
+  triage_queue: { mail: string; meetings: string; senders: string; corrections: string; examples: string; account: string }[];
 }
 
 export function prepare(req: TriageRequest): Prepared {
@@ -124,6 +161,7 @@ export function prepare(req: TriageRequest): Prepared {
       meetings: req.meetings.length > 0 ? req.meetings.map((m) => `- ${m.key}: ${m.title} (${m.start})`).join("\n") : "None.",
       senders: JSON.stringify({ vips: req.vips, unimportant: req.unimportant }),
       corrections: renderCorrections(req),
+      examples: renderExamples(req),
       account: req.mail.account ?? "unknown",
     }],
   };
@@ -136,7 +174,7 @@ export function parseAnswerText(text: string): unknown {
   return JSON.parse(text.slice(start, end + 1));
 }
 
-const ANSWER_KEYS = new Set(["commitment", "category", "meetingKey", "reason", "summary", "suggestedAction", "evidence"]);
+const ANSWER_KEYS = new Set(["commitment", "category", "meetingKey", "reason", "summary", "suggestedAction", "predictedAction", "evidence"]);
 const EVIDENCE_KEYS = new Set(["kind", "ref", "title"]);
 
 const extraKey = (o: Record<string, unknown>, allowed: Set<string>): string | undefined => Object.keys(o).find((k) => !allowed.has(k));
@@ -169,6 +207,10 @@ export function validateTriage(answer: unknown, meetingKeys: ReadonlySet<string>
   if (!absent(answer.suggestedAction)) {
     if (!oneOf(SUGGESTED_ACTIONS, answer.suggestedAction)) throw new Error("the answer's suggestedAction is not one the Desk knows");
     out.suggestedAction = answer.suggestedAction;
+  }
+  if (!absent(answer.predictedAction)) {
+    if (!oneOf(PREDICTED_ACTIONS, answer.predictedAction)) throw new Error("the answer's predictedAction is not one the Desk knows");
+    out.predictedAction = answer.predictedAction;
   }
   if (!absent(answer.evidence)) {
     if (!Array.isArray(answer.evidence)) throw new Error("the answer's evidence is not a list");
