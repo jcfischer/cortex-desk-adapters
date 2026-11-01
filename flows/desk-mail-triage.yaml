@@ -36,8 +36,10 @@ actions:
               The mail tools take the account the mail arrived in.
               Unless the mail is bulk, back the answer with evidence: the listed meeting you linked (kind event, ref its key) and what a tool returned that supports the answer.
 
+              Independently set commitment to request when asked to take on a new responsibility or task, invitation when invited to participate, none when no new commitment is asked, or unknown when evidence is insufficient. An expected reply or existing meeting update alone is not a new commitment.
+
               Answer with one JSON object and nothing else, with only these fields:
-              {"category": "...", "meetingKey": "..." (only for a meeting, one of the listed keys), "reason": "one plain sentence, at most 200 characters", "summary": "what the mail says and wants, at most 600 characters", "suggestedAction": "reply" | "archive" | "link-meeting" | "task" | "none", "evidence": [{"kind": "mail" | "event" | "note", "ref": "message id, meeting key or note id", "title": "subject or title"}] (at most 5, only things a tool returned or a listed meeting)}
+              {"category": "...", "commitment": "request" | "invitation" | "none" | "unknown", "meetingKey": "..." (only for a meeting, one of the listed keys), "reason": "one plain sentence, at most 200 characters", "summary": "what the mail says and wants, at most 600 characters", "suggestedAction": "reply" | "archive" | "link-meeting" | "task" | "none", "evidence": [{"kind": "mail" | "event" | "note", "ref": "message id, meeting key or note id", "title": "subject or title"}] (at most 5, only things a tool returned or a listed meeting)}
             prompt: |
               The mail (JSON; account {triage_item.account}):
               {triage_item.mail}
