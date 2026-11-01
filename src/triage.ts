@@ -17,6 +17,7 @@ export type SuggestedAction = (typeof SUGGESTED_ACTIONS)[number];
 export type PredictedAction = (typeof PREDICTED_ACTIONS)[number];
 
 export interface TriageExample {
+  category?: string;
   subject: string;
   summary: string;
   sender: string;
@@ -106,6 +107,7 @@ export function readTriageRequest(text: string): TriageRequest {
       subject: str(x.subject, `examples[${i}].subject`), summary: str(x.summary, `examples[${i}].summary`), sender: str(x.sender, `examples[${i}].sender`),
       action: str(x.action, `examples[${i}].action`), decidedAt: str(x.decidedAt, `examples[${i}].decidedAt`),
       similarity: num(x.similarity, `examples[${i}].similarity`), weight: num(x.weight, `examples[${i}].weight`),
+      ...(typeof x.category === "string" && x.category ? { category: x.category } : {}),
     })),
     examplesBasis: typeof body.examplesBasis === "string" ? body.examplesBasis : "sender",
   };
@@ -144,7 +146,7 @@ const BASIS_TEXT: Record<string, string> = {
 export function renderExamples(req: TriageRequest): string {
   if (req.examples.length === 0) return "None yet.";
   const head = `(${BASIS_TEXT[req.examplesBasis] ?? req.examplesBasis}; weight 2 marks a correction the person made)`;
-  return [head, ...req.examples.map((e) => `- ${e.action}${e.weight > 1 ? " (correction, weight 2)" : ""}, similarity ${e.similarity}: "${e.subject}" from ${e.sender}, ${e.decidedAt}. ${e.summary}`.trim())].join("\n");
+  return [head, ...req.examples.map((e) => `- ${e.action}${e.weight > 1 ? " (correction, weight 2)" : ""}, similarity ${e.similarity}: "${e.subject}" from ${e.sender}, ${e.decidedAt}${e.category ? `, sorted as ${e.category}` : ""}. ${e.summary}`.trim())].join("\n");
 }
 
 export interface Prepared {

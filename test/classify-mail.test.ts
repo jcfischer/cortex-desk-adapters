@@ -27,7 +27,7 @@ const request = (over: Partial<TriageRequest> = {}): TriageRequest => ({
   corrections: [{ kind: "mail", source: "ops@stats.example", mode: "keep", label: "“Weekly numbers” from ops@stats.example: the person would keep it" }],
   examples: [
     { subject: "Agenda for the board", summary: "Topics for the board meeting.", sender: "bob@example.org", action: "reply", decidedAt: "2026-10-20T08:00:00.000Z", similarity: 0.91, weight: 1 },
-    { subject: "Agenda draft", summary: "A first agenda.", sender: "eve@example.org", action: "keep", decidedAt: "2026-10-21T08:00:00.000Z", similarity: 0.88, weight: 2 },
+    { category: "not bulk", subject: "Agenda draft", summary: "A first agenda.", sender: "eve@example.org", action: "keep", decidedAt: "2026-10-21T08:00:00.000Z", similarity: 0.88, weight: 2 },
   ],
   examplesBasis: "content",
   ...over,
@@ -87,6 +87,7 @@ describe("the triage flow", () => {
     expect(first).toContain("found by content similarity");
     expect(first).toContain("reply, similarity 0.91: \\\"Agenda for the board\\\" from bob@example.org");
     expect(first).toContain("keep (correction, weight 2)");
+    expect(first).toContain("sorted as not bulk");
     expect(first).toContain(KEY);
     expect(first).toContain("account work");
     expect(first).toContain("A_NOTES_SEARCH");
