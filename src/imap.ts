@@ -3,7 +3,7 @@ import type { ImapAccount } from "./imap-account";
 import { imapAccount } from "./imap-account";
 import type { DeskMailHeaders, DeskMailLink } from "./contract";
 import { linksOf } from "./links";
-import type { PhishingReportBox } from "./report";
+import { MAX_ORIGINAL, TOO_LARGE, type PhishingReportBox } from "./report";
 import { HEADER_FIELDS, headersOf } from "./mail-headers";
 import { ReportRefusal, type Attachment, type ReportMailbox } from "./dmarc";
 import { bareMessageId, type Mailbox } from "./move";
@@ -145,7 +145,7 @@ const htmlPart = (structure: Part | undefined): string | undefined => {
 };
 
 /** The links of each message's HTML body, for these INBOX UIDs, read-only (EXAMINE, BODY.PEEK), so no message is marked read. */
-export async function readLinks(account: string, uids: number[], mailbox = "INBOX", maxBytes = 256 * 1024): Promise<Map<number, DeskMailLink[]>> {
+export async function readLinks(account: string, uids: number[], warn: (line: string) => void = () => undefined, mailbox = "INBOX", maxBytes = 256 * 1024): Promise<Map<number, DeskMailLink[]>> {
   const out = new Map<number, DeskMailLink[]>();
   if (uids.length === 0) return out;
   return withImapClient(account, async (client) => {
@@ -160,8 +160,8 @@ export async function readLinks(account: string, uids: number[], mailbox = "INBO
           for await (const chunk of content) chunks.push(chunk as Buffer);
           const links = linksOf(Buffer.concat(chunks).toString("utf8"));
           if (links.length > 0) out.set(m.uid, links);
-        } catch {
-          continue;
+        } catch (err) {
+          warn(`the links of message ${m.uid} were not read: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
     } finally {
@@ -180,10 +180,11 @@ export function withPhishingReportBox<T>(account: string, work: (box: PhishingRe
       try {
         const found = (await client.search({ header: { "message-id": messageId } }, { uid: true })) || [];
         if (found.length === 0) return undefined;
-        const exact = (await client.fetchAll(found, { envelope: true }, { uid: true })).filter((m) => bareMessageId(m.envelope?.messageId ?? "") === messageId);
+        const exact = (await client.fetchAll(found, { envelope: true, size: true }, { uid: true })).filter((m) => bareMessageId(m.envelope?.messageId ?? "") === messageId);
         const [only, ...others] = exact;
         if (!only) return undefined;
         if (others.length > 0) throw new Refusal(`${exact.length} messages in the ${account} ${folder} share this Message-ID, so none was reported.`);
+        if ((only.size ?? 0) > MAX_ORIGINAL) throw new Refusal(TOO_LARGE);
         const message = await client.fetchOne(String(only.uid), { source: true }, { uid: true });
         return message && message.source ? new Uint8Array(message.source) : undefined;
       } finally {

@@ -46,10 +46,10 @@ const withoutComments = (value: string): string => {
 
 const authservId = (results: string): string => withoutComments(results).split(";")[0]?.trim().split(/\s+/)[0]?.toLowerCase() ?? "";
 
+const resinfos = (results: string): string[] => withoutComments(results).split(";").slice(1);
+
 function verdict(results: string, method: "spf" | "dkim" | "dmarc"): DeskAuthVerdict | undefined {
-  const found = withoutComments(results)
-    .split(";")
-    .slice(1)
+  const found = resinfos(results)
     .map((resinfo) => new RegExp(`^\\s*${method}\\s*=\\s*([a-z]+)`, "i").exec(resinfo)?.[1]?.toLowerCase())
     .find((v) => v !== undefined);
   return VERDICTS.find((v) => v === found);
@@ -57,26 +57,24 @@ function verdict(results: string, method: "spf" | "dkim" | "dmarc"): DeskAuthVer
 
 const MAX_SIGNERS = 10;
 
-function signer(resinfo: string): string | undefined {
-  const d = /\bheader\.d\s*=\s*"?([a-z0-9.-]+)/i.exec(resinfo)?.[1] ?? /\bheader\.i\s*=\s*"?[^@\s;"]*@([a-z0-9.-]+)/i.exec(resinfo)?.[1];
-  const host = d?.toLowerCase().replace(/\.$/, "");
+const hostOf = (raw: string | undefined): string | undefined => {
+  const host = raw?.toLowerCase().replace(/\.$/, "");
   return host && HOST.test(host) ? host : undefined;
-}
+};
+
+const signer = (resinfo: string): string | undefined =>
+  hostOf(/\bheader\.d\s*=\s*"?([a-z0-9.-]+)/i.exec(resinfo)?.[1] ?? /\bheader\.i\s*=\s*"?[^@\s;"]*@([a-z0-9.-]+)/i.exec(resinfo)?.[1]);
 
 function dkimDomains(results: string): string[] {
-  const passing = withoutComments(results)
-    .split(";")
-    .slice(1)
+  const passing = resinfos(results)
     .filter((resinfo) => /^\s*dkim\s*=\s*pass\b/i.test(resinfo))
     .flatMap((resinfo) => signer(resinfo) ?? []);
   return [...new Set(passing)].slice(0, MAX_SIGNERS);
 }
 
 function spfDomain(results: string): string | undefined {
-  const spf = withoutComments(results).split(";").slice(1).find((resinfo) => /^\s*spf\s*=/i.test(resinfo));
-  const raw = spf ? /\bsmtp\.mailfrom\s*=\s*"?(?:[^@\s;"]*@)?([a-z0-9.-]+)/i.exec(spf)?.[1] : undefined;
-  const host = raw?.toLowerCase().replace(/\.$/, "");
-  return host && HOST.test(host) ? host : undefined;
+  const spf = resinfos(results).find((resinfo) => /^\s*spf\s*=/i.test(resinfo));
+  return spf ? hostOf(/\bsmtp\.mailfrom\s*=\s*"?(?:[^@\s;"]*@)?([a-z0-9.-]+)/i.exec(spf)?.[1]) : undefined;
 }
 
 function authResults(values: string[] | undefined, trusted: readonly string[]): DeskMailHeaders["authResults"] {

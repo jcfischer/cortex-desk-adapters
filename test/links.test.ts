@@ -25,3 +25,14 @@ it("survives entities outside Unicode and a body of unclosed anchors", () => {
   expect(linksOf(`${"<a href='https://x.example'>".repeat(20_000)}x`)).toEqual([]);
   expect(performance.now() - started).toBeLessThan(2000);
 });
+
+it("reads href, not a decoy data-href, and skips other tags that start with <a", () => {
+  expect(linksOf('<abbr>x</abbr><a data-href="https://bank.example/" href="https://evil.example/">bank.example</a>')).toEqual([{ text: "bank.example", href: "https://evil.example/" }]);
+});
+
+it("finishes quickly on anchors that never close their tag", () => {
+  const started = performance.now();
+  expect(linksOf("<a ".repeat(100_000))).toEqual([]);
+  expect(linksOf(`${"<a ".repeat(50_000)}>bank.example</a>`)).toEqual([]);
+  expect(performance.now() - started).toBeLessThan(2000);
+});

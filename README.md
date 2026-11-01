@@ -21,7 +21,7 @@ A source prints `{ "events"?: [...], "items"?: [...] }` on stdout and exits 0. T
 
 - An **event** has an `id`, an ISO 8601 `start`, a `title`, and optionally `end`, `allDay`, `location`, `online` and `url`.
 - A **mail item** has `kind: "mail"`, the Message-ID as `id`, `from`, `subject`, `receivedAt`, `unread`, and optionally `firstParagraph`, `url`, `account`, `headers` and `links`.
-- `headers` (`DeskMailHeaders`) holds what later Desk steps read from the message headers: `listId`, `listUnsubscribe`, `listUnsubscribePost`, `authResults` (`{ spf?, dkim?, dmarc?, dkimDomains? }`, the verdicts of the topmost Authentication-Results header and the signing domains of its passing DKIM signatures), `replyTo` and `inReplyTo`. Every field is optional. Cortex treats the values as untrusted data and drops a malformed field without dropping the mail.
+- `headers` (`DeskMailHeaders`) holds what later Desk steps read from the message headers: `listId`, `listUnsubscribe`, `listUnsubscribePost`, `authResults` (`{ spf?, dkim?, dmarc?, dkimDomains?, spfDomain? }`, the verdicts of the topmost Authentication-Results header, the signing domains of its passing DKIM signatures, and the domain SPF checked, from smtp.mailfrom), `replyTo` and `inReplyTo`. Every field is optional. Cortex treats the values as untrusted data and drops a malformed field without dropping the mail.
 - `links` (`DeskMailLink[]`, at most 20) are the links of the HTML body whose whole visible text names a host, as `{ text, href }`, for the Desk's phishing check.
 - Links must be `http:`, `https:` or `message:` (Apple Mail). Cortex drops entries that do not match and reports how many it dropped.
 

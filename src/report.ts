@@ -8,7 +8,8 @@ const ACCOUNT = /^[\w.-]{1,64}$/;
 const ADDRESS = /^[^\s<>,@"]+@[^\s<>,@"]+\.[^\s<>,@"]+$/;
 const DRAFT_NAMES = ["Drafts", "Draft", "Entwürfe", "Brouillons"];
 const MAX_SUBJECT = 200;
-const MAX_ORIGINAL = 25 * 1024 * 1024;
+export const MAX_ORIGINAL = 25 * 1024 * 1024;
+export const TOO_LARGE = "The message is larger than 25 MB, so it was not attached.";
 
 /** The few IMAP calls the report command makes, so tests never reach a mail server. */
 export interface PhishingReportBox {
@@ -113,7 +114,7 @@ export async function saveReportDraft(req: DeskMailReportRequest, box: PhishingR
     if (original) break;
   }
   if (!original) throw new Refusal(`The message is no longer in the ${req.account} ${places.join(" or ")}, so it was not reported.`);
-  if (original.length > MAX_ORIGINAL) throw new Refusal("The message is larger than 25 MB, so it was not attached.");
+  if (original.length > MAX_ORIGINAL) throw new Refusal(TOO_LARGE);
   const id = opts.newId?.() ?? crypto.randomUUID();
   const draftId = `desk-report-${id}@desk.invalid`;
   const from = opts.from && ADDRESS.test(opts.from) ? opts.from : undefined;
