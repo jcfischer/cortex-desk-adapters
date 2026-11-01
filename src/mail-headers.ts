@@ -1,4 +1,5 @@
 import type { DeskAuthVerdict, DeskMailHeaders } from "./contract";
+import { HOST } from "./host";
 
 const TEXT_FIELDS = {
   listId: { name: "list-id", max: 300 },
@@ -54,7 +55,6 @@ function verdict(results: string, method: "spf" | "dkim" | "dmarc"): DeskAuthVer
   return VERDICTS.find((v) => v === found);
 }
 
-const HOST = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 const MAX_SIGNERS = 10;
 
 function signer(resinfo: string): string | undefined {
@@ -72,6 +72,13 @@ function dkimDomains(results: string): string[] {
   return [...new Set(passing)].slice(0, MAX_SIGNERS);
 }
 
+function spfDomain(results: string): string | undefined {
+  const spf = withoutComments(results).split(";").slice(1).find((resinfo) => /^\s*spf\s*=/i.test(resinfo));
+  const raw = spf ? /\bsmtp\.mailfrom\s*=\s*"?(?:[^@\s;"]*@)?([a-z0-9.-]+)/i.exec(spf)?.[1] : undefined;
+  const host = raw?.toLowerCase().replace(/\.$/, "");
+  return host && HOST.test(host) ? host : undefined;
+}
+
 function authResults(values: string[] | undefined, trusted: readonly string[]): DeskMailHeaders["authResults"] {
   const ids = trusted.map((t) => t.toLowerCase());
   const header = ids.length > 0 ? values?.find((v) => ids.includes(authservId(v))) : values?.[0];
@@ -80,7 +87,8 @@ function authResults(values: string[] | undefined, trusted: readonly string[]): 
   const dkim = verdict(header, "dkim");
   const dmarc = verdict(header, "dmarc");
   if (!spf && !dkim && !dmarc) return undefined;
-  return { ...(spf ? { spf } : {}), ...(dkim ? { dkim } : {}), ...(dmarc ? { dmarc } : {}), dkimDomains: dkimDomains(header) };
+  const mailFrom = spfDomain(header);
+  return { ...(spf ? { spf } : {}), ...(dkim ? { dkim } : {}), ...(dmarc ? { dmarc } : {}), dkimDomains: dkimDomains(header), ...(mailFrom ? { spfDomain: mailFrom } : {}) };
 }
 
 /**
@@ -88,7 +96,7 @@ function authResults(values: string[] | undefined, trusted: readonly string[]): 
  * dropped when too long. Authentication-Results gives SPF, DKIM and DMARC verdicts from one header: the topmost, or,
  * with `trustedAuthserv`, the topmost whose authserv-id is listed (none listed: no verdicts). Comments such as an ARC
  * chain's `(i=1 spf=pass …)` are ignored. `dkimDomains` lists the signing domains (header.d, else header.i) of every
- * passing DKIM signature in that header. A header that cannot be read is left out, so a malformed message never drops the mail.
+ * passing DKIM signature in that header, and `spfDomain` the domain SPF checked (smtp.mailfrom). A header that cannot be read is left out, so a malformed message never drops the mail.
  */
 export function parseMailHeaders(raw: string, trustedAuthserv: readonly string[] = []): DeskMailHeaders | undefined {
   const fields = unfold(raw);

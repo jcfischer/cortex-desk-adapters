@@ -40,14 +40,16 @@ for (const account of values.account ?? []) {
       paragraphs.set(m.uid, m.snippet);
     }
   }
-  const headers = await readHeaders(account, listed.map((m) => m.uid), values.authserv).catch((err: unknown): Map<number, DeskMailHeaders> => {
-    process.stderr.write(`desk-mail: headers for ${account} were not read: ${err instanceof Error ? err.message : String(err)}\n`);
-    return new Map();
-  });
-  const links = await readLinks(account, unread.map((m) => m.uid)).catch((err: unknown): Map<number, DeskMailLink[]> => {
-    process.stderr.write(`desk-mail: links for ${account} were not read: ${err instanceof Error ? err.message : String(err)}\n`);
-    return new Map();
-  });
+  const [headers, links] = await Promise.all([
+    readHeaders(account, listed.map((m) => m.uid), values.authserv).catch((err: unknown): Map<number, DeskMailHeaders> => {
+      process.stderr.write(`desk-mail: headers for ${account} were not read: ${err instanceof Error ? err.message : String(err)}\n`);
+      return new Map();
+    }),
+    readLinks(account, unread.map((m) => m.uid)).catch((err: unknown): Map<number, DeskMailLink[]> => {
+      process.stderr.write(`desk-mail: links for ${account} were not read: ${err instanceof Error ? err.message : String(err)}\n`);
+      return new Map();
+    }),
+  ]);
   for (const m of listed) {
     const item = toDeskMail(m, account, paragraphs.get(m.uid) ?? m.snippet);
     const h = headers.get(m.uid);

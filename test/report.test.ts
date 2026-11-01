@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { readReportRequest, reportDraft, saveReportDraft, type ReportDraftBox } from "../src/report";
+import { readReportRequest, reportDraft, saveReportDraft, type PhishingReportBox } from "../src/report";
 import type { Folder } from "../src/move";
 
 const ORIGINAL = new TextEncoder().encode("From: Bank <service@bank.example>\r\nSubject: Verify your account\r\nMessage-ID: <m1@bank.example>\r\n\r\nClick now.\r\n");
@@ -8,7 +8,7 @@ const FOLDERS: Folder[] = [{ path: "INBOX", name: "INBOX" }, { path: "Junk", nam
 function box(where: Record<string, Uint8Array | undefined>, folders: Folder[] = FOLDERS) {
   const appended: { folder: string; content: string; flags: string[] }[] = [];
   const looked: string[] = [];
-  const b: ReportDraftBox = {
+  const b: PhishingReportBox = {
     folders: async () => folders,
     source: async (folder) => { looked.push(folder); return where[folder]; },
     append: async (folder, content, flags) => { appended.push({ folder, content: new TextDecoder().decode(content), flags }); },

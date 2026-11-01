@@ -1,6 +1,6 @@
 import type { DeskMailReportRequest, DeskWriteResult } from "./contract";
 import { isRecord } from "./guards";
-import { bareMessageId, pickFolder, type Folder } from "./move";
+import { bareMessageId, folderByUse, pickFolder, type Folder } from "./move";
 import { Refusal } from "./writers";
 
 const MESSAGE_ID = /^[^\s<>]{1,512}$/;
@@ -11,7 +11,7 @@ const MAX_SUBJECT = 200;
 const MAX_ORIGINAL = 25 * 1024 * 1024;
 
 /** The few IMAP calls the report command makes, so tests never reach a mail server. */
-export interface ReportDraftBox {
+export interface PhishingReportBox {
   folders(): Promise<Folder[]>;
   source(folder: string, messageId: string): Promise<Uint8Array | undefined>;
   append(folder: string, content: Uint8Array, flags: string[]): Promise<void>;
@@ -89,8 +89,6 @@ export function reportDraft({ from, to, messageId, original, boundary, draftId, 
   return new Uint8Array(Buffer.concat([Buffer.from(head, "utf8"), Buffer.from(original), Buffer.from(tail, "utf8")]));
 }
 
-const draftsFolder = (folders: Folder[]): string | undefined =>
-  folders.find((f) => f.specialUse === "\\Drafts")?.path ?? DRAFT_NAMES.map((n) => folders.find((f) => f.name.toLowerCase() === n.toLowerCase() || f.path.toLowerCase() === n.toLowerCase())?.path).find(Boolean);
 
 export interface ReportOptions {
   inbox?: string;
@@ -103,9 +101,9 @@ export interface ReportOptions {
  * Saves a report draft to `req.to` in the account's Drafts with the original attached. The original is read from INBOX,
  * else from Junk (Spam may come first), never changed. It never sends and never moves or deletes anything.
  */
-export async function saveReportDraft(req: DeskMailReportRequest, box: ReportDraftBox, opts: ReportOptions = {}): Promise<DeskWriteResult> {
+export async function saveReportDraft(req: DeskMailReportRequest, box: PhishingReportBox, opts: ReportOptions = {}): Promise<DeskWriteResult> {
   const folders = await box.folders();
-  const drafts = draftsFolder(folders);
+  const drafts = folderByUse(folders, "\\Drafts", DRAFT_NAMES);
   if (!drafts) throw new Refusal(`The ${req.account} account has no Drafts mailbox, so no report was saved.`);
   const junk = pickFolder(folders, "junk");
   const places = [opts.inbox ?? "INBOX", ...(junk ? [junk] : [])];

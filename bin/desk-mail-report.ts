@@ -7,7 +7,7 @@
  * Usage: desk-mail-report [--mailbox INBOX]
  */
 import { parseArgs } from "node:util";
-import { withReportDraftBox } from "../src/imap";
+import { withPhishingReportBox } from "../src/imap";
 import { readReportRequest, saveReportDraft } from "../src/report";
 import { runWriter } from "../src/writers";
 
@@ -19,5 +19,5 @@ const { values } = parseArgs({
 
 await runWriter(async (text) => {
   const req = readReportRequest(text);
-  return withReportDraftBox(req.account, (box, user) => saveReportDraft(req, box, { from: user, ...(values.mailbox ? { inbox: values.mailbox } : {}) }));
+  return withPhishingReportBox(req.account, (box, user) => saveReportDraft(req, box, { from: user, ...(values.mailbox ? { inbox: values.mailbox } : {}) }));
 });

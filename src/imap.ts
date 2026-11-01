@@ -3,7 +3,7 @@ import type { ImapAccount } from "./imap-account";
 import { imapAccount } from "./imap-account";
 import type { DeskMailHeaders, DeskMailLink } from "./contract";
 import { linksOf } from "./links";
-import type { ReportDraftBox } from "./report";
+import type { PhishingReportBox } from "./report";
 import { HEADER_FIELDS, headersOf } from "./mail-headers";
 import { ReportRefusal, type Attachment, type ReportMailbox } from "./dmarc";
 import { bareMessageId, type Mailbox } from "./move";
@@ -154,11 +154,15 @@ export async function readLinks(account: string, uids: number[], mailbox = "INBO
       for (const m of await client.fetchAll(uids, { bodyStructure: true }, { uid: true })) {
         const part = htmlPart(m.bodyStructure as Part | undefined);
         if (!part) continue;
-        const { content } = await client.download(String(m.uid), part, { uid: true, maxBytes });
-        const chunks: Buffer[] = [];
-        for await (const chunk of content) chunks.push(chunk as Buffer);
-        const links = linksOf(Buffer.concat(chunks).toString("utf8"));
-        if (links.length > 0) out.set(m.uid, links);
+        try {
+          const { content } = await client.download(String(m.uid), part, { uid: true, maxBytes });
+          const chunks: Buffer[] = [];
+          for await (const chunk of content) chunks.push(chunk as Buffer);
+          const links = linksOf(Buffer.concat(chunks).toString("utf8"));
+          if (links.length > 0) out.set(m.uid, links);
+        } catch {
+          continue;
+        }
       }
     } finally {
       lock.release();
@@ -167,8 +171,8 @@ export async function readLinks(account: string, uids: number[], mailbox = "INBO
   });
 }
 
-/** A ReportDraftBox over one account: originals are read with EXAMINE and BODY.PEEK; the draft is appended to Drafts. */
-export function withReportDraftBox<T>(account: string, work: (box: ReportDraftBox, user: string) => Promise<T>): Promise<T> {
+/** A PhishingReportBox over one account: originals are read with EXAMINE and BODY.PEEK; the draft is appended to Drafts. */
+export function withPhishingReportBox<T>(account: string, work: (box: PhishingReportBox, user: string) => Promise<T>): Promise<T> {
   return imapAccount(account, spawnRunner).then((acct) => withImapClient(account, (client) => work({
     folders: async () => (await client.list()).map((b) => ({ path: b.path, name: b.name, ...(b.specialUse ? { specialUse: b.specialUse } : {}) })),
     source: async (folder, messageId) => {

@@ -51,8 +51,8 @@ export interface DeskMailHeaders {
   listId?: string;
   listUnsubscribe?: string;
   listUnsubscribePost?: string;
-  /** `dkimDomains`: the signing domains of the passing DKIM signatures in the same header, possibly none. */
-  authResults?: { spf?: DeskAuthVerdict; dkim?: DeskAuthVerdict; dmarc?: DeskAuthVerdict; dkimDomains?: string[] };
+  /** `dkimDomains`: the signing domains of the passing DKIM signatures in the same header, possibly none; `spfDomain`: the domain SPF checked (smtp.mailfrom). */
+  authResults?: { spf?: DeskAuthVerdict; dkim?: DeskAuthVerdict; dmarc?: DeskAuthVerdict; dkimDomains?: string[]; spfDomain?: string };
   replyTo?: string;
   inReplyTo?: string;
 }
