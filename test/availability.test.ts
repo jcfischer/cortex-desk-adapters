@@ -33,6 +33,10 @@ describe("qualified availability adapters", () => {
     const content = ["BEGIN:VCALENDAR", "BEGIN:VEVENT", "UID:owned-missing", "SUMMARY:Owned entry", "DTSTART:20261103T100000Z", "DTEND:20261103T110000Z", "END:VEVENT", "END:VCALENDAR"].join("\n");
     expect(parseIcs(content, { from: Date.parse(from), to: Date.parse(to) }).events[0]?.availability?.status).toBe("unknown");
   });
+  it("refuses complete coverage when a moved recurring occurrence cannot be represented", () => {
+    const content = ["BEGIN:VCALENDAR", "BEGIN:VEVENT", "UID:owned-override", "RECURRENCE-ID:20261103T090000Z", "SUMMARY:Owned moved occurrence", "DTSTART:20261103T100000Z", "DTEND:20261103T110000Z", "TRANSP:OPAQUE", "END:VEVENT", "END:VCALENDAR"].join("\n");
+    expect(parseIcs(content, { from: Date.parse(from), to: Date.parse(to) }).complete).toBe(false);
+  });
   it("retains RFC transparency and unknown tentative status without all-day guesses", () => {
     const content = ["BEGIN:VCALENDAR", ...["TRANSPARENT", "OPAQUE", "INVALID"].flatMap((value, index) => ["BEGIN:VEVENT", `UID:${index}`, "DTSTART;VALUE=DATE:20261103", "DTEND;VALUE=DATE:20261104", `TRANSP:${value}`, "SUMMARY:Owned all-day", "END:VEVENT"]), "END:VCALENDAR"].join("\n");
     const parsed = parseIcs(content, { from: Date.parse(from), to: Date.parse(to) });

@@ -218,7 +218,8 @@ export function parseIcs(text: string, window: IcsWindow): IcsResult {
 
 function buildEvents(props: IcsProperty[], window: IcsWindow): DeskSourceEvent[] | null {
   const get = (name: string): IcsProperty | undefined => props.find((p) => p.name === name);
-  if (get("RECURRENCE-ID") || get("STATUS")?.value.toUpperCase() === "CANCELLED") return [];
+  if (get("STATUS")?.value.toUpperCase() === "CANCELLED") return [];
+  if (get("RECURRENCE-ID")) return null;
   const dtstart = get("DTSTART");
   const start = dtstart ? parseTime(dtstart) : null;
   const title = unescapeText(get("SUMMARY")?.value ?? "").trim();

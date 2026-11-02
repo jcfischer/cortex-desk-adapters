@@ -16,6 +16,8 @@ The enum definitions are [Apple EKEventAvailability](https://developer.apple.com
 
 The raw Exchange report retains the provider folder display name. The Desk adapter deliberately keeps its existing `Exchange` display label so legacy visibility and colour preferences still apply. The stable provider folder ID identifies the calendar; the display label does not establish source authority. EventKit calendar names pass through directly, and stable IDs preserve settings across renames.
 
+The raw Exchange reader uses the service's public `LoadPropertiesForItems` operation in batches of at most 50 appointments. This is a local request bound, not an asserted Exchange service limit or a scheduling policy. A failed batch, mismatched response count, failed item response, or unreadable required property makes the report partial. Missing all-day metadata is never represented as a timed event.
+
 ## Install and roll back the separate native reader
 
 Build with `mac/build-availability.sh /path/to/new-output-directory`. The build refuses an existing `desk-calendar-availability-v1`. Record the source revision, output SHA256, and code signature before installation. The original `desk-calendar-mac` stays unchanged.
